@@ -2,11 +2,12 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { fmtMoney } from "@/lib/money";
 import { PageHeader, Pill } from "@/components/ui";
+import { boatInsuranceState } from "@/lib/incidentRules";
 
 export default async function BoatsPage() {
   const boats = await prisma.boat.findMany({
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
-    include: { rates: { where: { active: true }, orderBy: { minutes: "asc" } }, maintenance: { orderBy: { performedAt: "desc" }, take: 1 } },
+    include: { rates: { where: { active: true }, orderBy: { minutes: "asc" } }, maintenance: { orderBy: { performedAt: "desc" }, take: 1 }, insurance: { select: { expiresAt: true } } },
   });
   return (
     <div>
@@ -20,10 +21,17 @@ export default async function BoatsPage() {
             </div>
             <div className="muted">{b.type} · {b.capacity} guests · deposit {fmtMoney(b.depositCents)}</div>
             <div className="mt-2 text-sm">{b.rates.map((r) => `${r.label} ${fmtMoney(r.priceCents)}`).join(" · ") || <span className="text-rose-600">No active rates — not bookable</span>}</div>
+            {b.status !== "retired" && <InsuranceBadge state={boatInsuranceState(b.insurance)} />}
             <div className="muted mt-2">Engine: {b.engineHours} hrs{b.maintenance[0] ? ` · last service ${b.maintenance[0].performedAt.toLocaleDateString()}` : ""}</div>
           </Link>
         ))}
       </div>
     </div>
   );
+}
+
+function InsuranceBadge({ state }: { state: ReturnType<typeof boatInsuranceState> }) {
+  if (state === "ok") return null;
+  const text = { missing: "No insurance on file", expired: "Insurance expired", expiring: "Insurance expiring soon" }[state];
+  return <div className="mt-2"><Pill tone={state === "expiring" ? "amber" : "red"}>{text}</Pill></div>;
 }

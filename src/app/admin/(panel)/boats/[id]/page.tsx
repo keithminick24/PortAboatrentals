@@ -8,6 +8,7 @@ import FlashMessage from "@/components/FlashMessage";
 import { addBlock, addMaintenance, copyRatesToAllBoats, deleteBlock, saveBoat, saveRate, saveSchedule } from "../../../actions";
 import { dueStatus } from "@/lib/maintenance";
 import { ANGLE_LABELS } from "@/lib/constants";
+import BoatInsuranceTow from "@/components/admin/BoatInsuranceTow";
 
 export default async function BoatEdit({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ msg?: string; err?: string }> }) {
   const { id } = await params;
@@ -198,6 +199,7 @@ export default async function BoatEdit({ params, searchParams }: { params: Promi
           </div>
         )}
       </div>
+      {boat && <BoatInsuranceTow boatId={boat.id} />}
     </div>
   );
 }

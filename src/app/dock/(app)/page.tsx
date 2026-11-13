@@ -2,6 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { addDays, fmtTime, todayLocal, zonedToUtc, fmtDateStr } from "@/lib/time";
 import FlashMessage from "@/components/FlashMessage";
+import ClockCard from "@/components/crew/ClockCard";
 
 export default async function DockHome({ searchParams }: { searchParams: Promise<{ msg?: string; err?: string }> }) {
   const sp = await searchParams;
@@ -24,6 +25,8 @@ export default async function DockHome({ searchParams }: { searchParams: Promise
         <div className="text-sm text-slate-500">{fmtDateStr(today, { weekday: "long", month: "long" })}</div>
       </div>
       <FlashMessage msg={sp.msg} err={sp.err} />
+      <ClockCard />
+      <Link href="/dock/incidents/new" className="block rounded-xl border border-rose-200 bg-rose-50 p-3 text-center font-semibold text-rose-800">⚠ Report incident</Link>
 
       <Section title="On the water" empty="No boats out right now.">
         {onWater.map((b) => {

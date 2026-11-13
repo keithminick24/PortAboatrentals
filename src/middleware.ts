@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { SESSION_COOKIE, verifySession } from "@/lib/session";
+import { checkAccess } from "@/lib/routeAccess";
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
@@ -12,10 +13,12 @@ export async function middleware(req: NextRequest) {
     url.searchParams.set("next", pathname);
     return NextResponse.redirect(url);
   }
-  // Dock crew only use the dock app (and the photo/status APIs it calls).
-  if (session.role === "dock" && pathname.startsWith("/admin")) {
+  // Role-based access (see lib/routeAccess.ts and lib/permissions.ts).
+  const access = checkAccess(session.role, pathname);
+  if (!access.ok) {
+    if (access.api) return NextResponse.json({ error: "You don't have access to that." }, { status: 403 });
     const url = req.nextUrl.clone();
-    url.pathname = "/dock";
+    url.pathname = access.redirectTo;
     url.search = "";
     return NextResponse.redirect(url);
   }

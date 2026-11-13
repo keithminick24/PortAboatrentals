@@ -8,6 +8,15 @@ import { Notice, PageHeader, Pill } from "@/components/ui";
 import FlashMessage from "@/components/FlashMessage";
 import CopyButton from "@/components/CopyButton";
 import { saveSettings, saveStaff } from "../../actions";
+import { ROLES } from "@/lib/permissions";
+
+const ROLE_HELP: Record<string, string> = {
+  owner: "Everything, including settings and staff logins.",
+  manager: "Runs the day: bookings, refunds, deposits, fleet, prices, crew schedule, marketing.",
+  accounting: "Money only: expenses, Xero, profit, budgets, payroll export.",
+  staff: "Front desk: bookings, customers, texts, check-in/out, phone requests.",
+  dock: "Dock app only: check-in/out photos, own schedule, time clock, incident reports.",
+};
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -82,6 +91,10 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
             <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="smsReminder" defaultChecked={s.smsReminder} /> Text a reminder the day before</label>
             <div><label className="label">Damage alert phone</label><input name="damageAlertPhone" className="input" defaultValue={s.damageAlertPhone} placeholder="Dock lead's cell" /></div>
           </div>
+          <p className="muted text-sm">
+            <b>Incident alerts:</b> when crew or a guest reports an incident, we text the damage alert phone above
+            and email {process.env.STAFF_NOTIFY_EMAIL ? <b>{process.env.STAFF_NOTIFY_EMAIL}</b> : <>the STAFF_NOTIFY_EMAIL address (not set yet)</>}.
+          </p>
           <h2 className="h2">Card convenience fee</h2>
           <p className="muted text-sm">
             Added when the guest pays online by card (not for cash or staff-recorded payments). Set both to 0 to turn off.
@@ -99,7 +112,11 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
 
       <div className="card card-pad space-y-3">
         <h2 className="h2">Staff logins</h2>
-        <p className="muted">Owner: everything. Manager: refunds, deposit captures, fleet & contracts. Staff: check-in/out, photos, bookings.</p>
+        <ul className="muted space-y-0.5 text-sm">
+          {ROLES.map((r) => (
+            <li key={r.key}><b className="text-slate-700">{r.label}:</b> {ROLE_HELP[r.key]}</li>
+          ))}
+        </ul>
         {[...staff, null].map((u) => (
           <form key={u?.id ?? "new"} action={saveStaff} className="grid grid-cols-12 items-end gap-2 rounded-lg bg-slate-50 p-2">
             <fieldset disabled={!isOwner} className="contents">
@@ -108,7 +125,9 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
               <div className="col-span-6 sm:col-span-3"><label className="label text-xs">Email</label><input name="email" type="email" className="input" defaultValue={u?.email} required /></div>
               <div className="col-span-5 sm:col-span-2">
                 <label className="label text-xs">Role</label>
-                <select name="role" className="input" defaultValue={u?.role ?? "staff"}><option value="owner">Owner</option><option value="manager">Manager</option><option value="staff">Staff</option><option value="dock">Dock crew</option></select>
+                <select name="role" className="input" defaultValue={u?.role ?? "staff"}>
+                  {ROLES.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
+                </select>
               </div>
               <div className="col-span-7 sm:col-span-2"><label className="label text-xs">{u ? "New password" : "Password"}</label><input name="password" type="password" className="input" placeholder={u ? "unchanged" : "8+ chars"} /></div>
               <div className="col-span-12 flex items-center gap-2 sm:col-span-2">

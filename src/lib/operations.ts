@@ -28,7 +28,7 @@ export async function checkOutReadiness(bookingId: string) {
 export async function checkOut(
   bookingId: string,
   actor: string,
-  opts: { engineHoursOut: number | null; fuelOut: string | null; placeDeposit: boolean; allowMissingPhotos?: boolean },
+  opts: { engineHoursOut: number | null; fuelOut: string | null; placeDeposit: boolean; allowMissingPhotos?: boolean; userId?: string | null },
 ): Promise<OpResult> {
   const b = await prisma.booking.findUniqueOrThrow({ where: { id: bookingId }, include: { boat: true } });
   if (b.status !== "confirmed") return { ok: false, error: `This booking is ${b.status.replace("_", " ")}, not ready to check out.` };
@@ -52,6 +52,7 @@ export async function checkOut(
     data: { status: "checked_out", checkedOutAt: new Date(), checkedOutBy: actor, fuelOut: opts.fuelOut, engineHoursOut: opts.engineHoursOut },
   });
   if (opts.engineHoursOut != null) await prisma.boat.update({ where: { id: b.boatId }, data: { engineHours: opts.engineHoursOut } });
+  if (opts.userId) await addTripCrew(bookingId, opts.userId, "check_out");
   await logEvent(
     bookingId,
     "checked_out",
@@ -64,7 +65,7 @@ export async function checkOut(
 export async function checkIn(
   bookingId: string,
   actor: string,
-  opts: { engineHoursIn: number | null; fuelIn: string | null; notes: string },
+  opts: { engineHoursIn: number | null; fuelIn: string | null; notes: string; userId?: string | null },
 ): Promise<OpResult> {
   const b = await prisma.booking.findUniqueOrThrow({
     where: { id: bookingId },
@@ -89,6 +90,7 @@ export async function checkIn(
     },
   });
   if (opts.engineHoursIn != null) await prisma.boat.update({ where: { id: b.boatId }, data: { engineHours: opts.engineHoursIn } });
+  if (opts.userId) await addTripCrew(bookingId, opts.userId, "check_in");
   const late = b.endsAt < new Date() ? Math.round((Date.now() - b.endsAt.getTime()) / 60000) : 0;
   const used = opts.engineHoursIn != null && b.engineHoursOut != null ? ` (${(opts.engineHoursIn - b.engineHoursOut).toFixed(1)} hrs used)` : "";
   await logEvent(
@@ -101,4 +103,15 @@ export async function checkIn(
     ok: true,
     message: confirmed ? `Checked in with ${confirmed} damage item(s). The office will review the deposit.` : "Checked in. No new damage logged.",
   };
+}
+
+/** Records a crew member on a trip (tips are split between the trip's crew). Keeps the first role recorded. */
+export async function addTripCrew(bookingId: string, userId: string, role: string) {
+  const user = await prisma.adminUser.findUnique({ where: { id: userId }, select: { id: true } });
+  if (!user) return;
+  await prisma.bookingCrew.upsert({
+    where: { bookingId_userId: { bookingId, userId } },
+    create: { bookingId, userId, role },
+    update: {},
+  });
 }

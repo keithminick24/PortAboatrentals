@@ -3,7 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { getSession, hashPassword, login, logout, requireAdmin, requireRole } from "@/lib/auth";
+import { getSession, hashPassword, login, logout, requirePermission } from "@/lib/auth";
+import { allowedNext } from "@/lib/routeAccess";
+import { homeFor, ROLES } from "@/lib/permissions";
 import { BookingError, createBooking, logEvent, missingPrimarySignatures, onBookingConfirmed, setStatus } from "@/lib/bookings";
 import {
   captureDeposit,
@@ -40,9 +42,9 @@ export async function loginAction(_prev: { error?: string } | undefined, f: Form
   const ok = await login(str(f, "email"), str(f, "password"));
   if (!ok) return { error: "Incorrect email or password." };
   const sess = await getSession();
-  if (sess?.role === "dock") redirect("/dock");
+  const role = sess?.role ?? "staff";
   const next = str(f, "next");
-  redirect(next.startsWith("/admin") || next.startsWith("/dock") ? next : "/admin");
+  redirect(allowedNext(role, next) ? next : homeFor(role));
 }
 
 export async function logoutAction() {
@@ -53,7 +55,7 @@ export async function logoutAction() {
 // ---------------------------------------------------------------- bookings
 
 export async function adminCreateBooking(f: FormData) {
-  const s = await requireAdmin();
+  const s = await requirePermission("ops");
   const [boatId, rateId] = str(f, "boatRate").split("|");
   const addOns = [...f.entries()]
     .filter(([k]) => k.startsWith("addon_"))
@@ -106,7 +108,7 @@ export async function adminCreateBooking(f: FormData) {
 }
 
 export async function updateBookingStatus(f: FormData) {
-  const s = await requireAdmin();
+  const s = await requirePermission("ops");
   const id = str(f, "id");
   const status = str(f, "status");
   await setStatus(id, status, s.name);
@@ -115,12 +117,13 @@ export async function updateBookingStatus(f: FormData) {
 }
 
 export async function checkOutBoat(f: FormData) {
-  const s = await requireAdmin();
+  const s = await requirePermission("ops");
   const id = str(f, "id");
   const r = await checkOut(id, s.name, {
     engineHoursOut: num(f, "engineHoursOut"),
     fuelOut: str(f, "fuelOut") || null,
     placeDeposit: str(f, "placeDeposit") === "on",
+    userId: s.uid,
     allowMissingPhotos: true,
   });
   if (r.ok) back(`/admin/bookings/${id}`, r.message);
@@ -128,29 +131,29 @@ export async function checkOutBoat(f: FormData) {
 }
 
 export async function checkInBoat(f: FormData) {
-  const s = await requireAdmin();
+  const s = await requirePermission("ops");
   const id = str(f, "id");
-  const r = await checkIn(id, s.name, { engineHoursIn: num(f, "engineHoursIn"), fuelIn: str(f, "fuelIn") || null, notes: str(f, "damageNotes") });
+  const r = await checkIn(id, s.name, { engineHoursIn: num(f, "engineHoursIn"), fuelIn: str(f, "fuelIn") || null, notes: str(f, "damageNotes"), userId: s.uid });
   if (r.ok) back(`/admin/bookings/${id}`, "Boat checked in. Review photos, then release or capture the deposit.");
   else back(`/admin/bookings/${id}`, undefined, r.error);
 }
 
 export async function completeBooking(f: FormData) {
-  const s = await requireAdmin();
+  const s = await requirePermission("ops");
   const id = str(f, "id");
   await setStatus(id, "completed", s.name);
   back(`/admin/bookings/${id}`, "Booking completed");
 }
 
 export async function placeDepositAction(f: FormData) {
-  const s = await requireAdmin();
+  const s = await requirePermission("ops");
   const id = str(f, "id");
   const r = await placeDepositHold(id, s.name);
   back(`/admin/bookings/${id}`, r.ok ? "Deposit hold placed" : undefined, r.error);
 }
 
 export async function releaseDepositAction(f: FormData) {
-  const s = await requireAdmin();
+  const s = await requirePermission("money");
   const id = str(f, "id");
   try {
     await releaseDeposit(id, s.name);
@@ -161,7 +164,7 @@ export async function releaseDepositAction(f: FormData) {
 }
 
 export async function captureDepositAction(f: FormData) {
-  const s = await requireRole("owner", "manager");
+  const s = await requirePermission("money");
   const id = str(f, "id");
   const cents = parseMoney(str(f, "amount"));
   const reason = str(f, "reason");
@@ -176,7 +179,7 @@ export async function captureDepositAction(f: FormData) {
 }
 
 export async function refundAction(f: FormData) {
-  const s = await requireRole("owner", "manager");
+  const s = await requirePermission("money");
   const id = str(f, "id");
   const cents = parseMoney(str(f, "amount"));
   if (!cents) return back(`/admin/bookings/${id}`, undefined, "Enter a valid amount");
@@ -189,7 +192,7 @@ export async function refundAction(f: FormData) {
 }
 
 export async function recordPaymentAction(f: FormData) {
-  const s = await requireAdmin();
+  const s = await requirePermission("ops");
   const id = str(f, "id");
   const cents = parseMoney(str(f, "amount"));
   if (!cents) return back(`/admin/bookings/${id}`, undefined, "Enter a valid amount");
@@ -198,7 +201,7 @@ export async function recordPaymentAction(f: FormData) {
 }
 
 export async function sendPaymentLinkAction(f: FormData) {
-  const s = await requireAdmin();
+  const s = await requirePermission("ops");
   const id = str(f, "id");
   const b = await prisma.booking.findUniqueOrThrow({ where: { id }, include: { customer: true, boat: true } });
   await sendMail({
@@ -216,14 +219,14 @@ export async function sendPaymentLinkAction(f: FormData) {
 }
 
 export async function resendConfirmationAction(f: FormData) {
-  await requireAdmin();
+  await requirePermission("ops");
   const id = str(f, "id");
   await onBookingConfirmed(id);
   back(`/admin/bookings/${id}`, "Confirmation re-sent");
 }
 
 export async function cancelBookingAction(f: FormData) {
-  const s = await requireRole("owner", "manager");
+  const s = await requirePermission("money");
   const id = str(f, "id");
   const b = await prisma.booking.findUniqueOrThrow({ where: { id } });
   const refund = str(f, "refund") === "on";
@@ -241,14 +244,14 @@ export async function cancelBookingAction(f: FormData) {
 }
 
 export async function saveBookingNotes(f: FormData) {
-  await requireAdmin();
+  await requirePermission("ops");
   const id = str(f, "id");
   await prisma.booking.update({ where: { id }, data: { internalNotes: str(f, "internalNotes") } });
   back(`/admin/bookings/${id}`, "Notes saved");
 }
 
 export async function rescheduleBooking(f: FormData) {
-  const s = await requireAdmin();
+  const s = await requirePermission("ops");
   const id = str(f, "id");
   const b = await prisma.booking.findUniqueOrThrow({ where: { id }, include: { rate: true } });
   const date = str(f, "date");
@@ -273,7 +276,7 @@ export async function rescheduleBooking(f: FormData) {
 }
 
 export async function deletePhotoAction(f: FormData) {
-  await requireRole("owner", "manager");
+  await requirePermission("money");
   const id = str(f, "photoId");
   const p = await prisma.photo.delete({ where: { id } });
   await deleteObject(p.storageKey);
@@ -283,7 +286,7 @@ export async function deletePhotoAction(f: FormData) {
 // ---------------------------------------------------------------- fleet
 
 export async function saveBoat(f: FormData) {
-  await requireRole("owner", "manager");
+  await requirePermission("pricing");
   const id = str(f, "id");
   const deposit = parseMoney(str(f, "deposit"));
   const data = {
@@ -315,7 +318,7 @@ export async function saveBoat(f: FormData) {
 }
 
 export async function saveRate(f: FormData) {
-  await requireRole("owner", "manager");
+  await requirePermission("pricing");
   const boatId = str(f, "boatId");
   const id = str(f, "id");
   const price = parseMoney(str(f, "price"));
@@ -336,13 +339,13 @@ export async function saveRate(f: FormData) {
 }
 
 export async function deleteRate(f: FormData) {
-  await requireRole("owner", "manager");
+  await requirePermission("pricing");
   const r = await prisma.rate.delete({ where: { id: str(f, "id") } });
   back(`/admin/boats/${r.boatId}`, "Rate removed");
 }
 
 export async function copyRatesToAllBoats(f: FormData) {
-  await requireRole("owner", "manager");
+  await requirePermission("pricing");
   const boatId = str(f, "boatId");
   const rates = await prisma.rate.findMany({ where: { boatId } });
   const others = await prisma.boat.findMany({ where: { id: { not: boatId } } });
@@ -356,7 +359,7 @@ export async function copyRatesToAllBoats(f: FormData) {
 }
 
 export async function addBlock(f: FormData) {
-  await requireAdmin();
+  await requirePermission("ops");
   const boatId = str(f, "boatId") || null;
   const startsAt = zonedToUtc(str(f, "startDate"), str(f, "startTime") || "00:00");
   const endsAt = zonedToUtc(str(f, "endDate") || str(f, "startDate"), str(f, "endTime") || "23:59");
@@ -366,13 +369,13 @@ export async function addBlock(f: FormData) {
 }
 
 export async function deleteBlock(f: FormData) {
-  await requireAdmin();
+  await requirePermission("ops");
   await prisma.boatBlock.delete({ where: { id: str(f, "id") } });
   back(str(f, "returnTo") || "/admin/calendar", "Block removed");
 }
 
 export async function addMaintenance(f: FormData) {
-  const s = await requireAdmin();
+  const s = await requirePermission("ops");
   const boatId = str(f, "boatId");
   if (!str(f, "description")) return back(boatId ? `/admin/boats/${boatId}` : "/admin/maintenance", undefined, "Describe the work done");
   const addOnId = str(f, "addOnId") || null;
@@ -403,7 +406,7 @@ export async function addMaintenance(f: FormData) {
 }
 
 export async function saveSchedule(f: FormData) {
-  await requireRole("owner", "manager");
+  await requirePermission("pricing");
   const boatId = str(f, "boatId");
   const id = str(f, "id");
   const name = str(f, "name");
@@ -417,7 +420,7 @@ export async function saveSchedule(f: FormData) {
 // ---------------------------------------------------------------- add-ons
 
 export async function saveAddOn(f: FormData) {
-  await requireRole("owner", "manager");
+  await requirePermission("pricing");
   const id = str(f, "id");
   const price = parseMoney(str(f, "price"));
   if (!str(f, "name") || price == null) return back("/admin/addons", undefined, "Name and price are required");
@@ -437,7 +440,7 @@ export async function saveAddOn(f: FormData) {
 // ---------------------------------------------------------------- texting
 
 export async function sendMessageAction(f: FormData) {
-  const s = await requireAdmin();
+  const s = await requirePermission("ops");
   const returnTo = str(f, "returnTo") || "/admin/messages";
   const r = await sendText({
     to: str(f, "phone"),
@@ -453,7 +456,7 @@ export async function sendMessageAction(f: FormData) {
 // ---------------------------------------------------------------- mandatory fees
 
 export async function saveFee(f: FormData) {
-  await requireRole("owner", "manager");
+  await requirePermission("pricing");
   const id = str(f, "id");
   const name = str(f, "name");
   if (!name) return back("/admin/fees", undefined, "Name is required");
@@ -488,7 +491,7 @@ export async function saveFee(f: FormData) {
 // ---------------------------------------------------------------- contracts
 
 export async function publishContractVersion(f: FormData) {
-  await requireRole("owner", "manager");
+  await requirePermission("pricing");
   const name = str(f, "name");
   const body = str(f, "body");
   if (!name || body.length < 20) return back("/admin/contracts", undefined, "Name and full contract text are required");
@@ -508,7 +511,7 @@ export async function publishContractVersion(f: FormData) {
 }
 
 export async function retireContract(f: FormData) {
-  await requireRole("owner", "manager");
+  await requirePermission("pricing");
   await prisma.contractTemplate.updateMany({ where: { name: str(f, "name") }, data: { active: false } });
   back("/admin/contracts", "Contract retired");
 }
@@ -516,7 +519,7 @@ export async function retireContract(f: FormData) {
 // ---------------------------------------------------------------- settings & staff
 
 export async function saveSettings(f: FormData) {
-  await requireRole("owner");
+  await requirePermission("settings");
   const pct = (k: string) => Math.round(parseFloat(str(f, k) || "0") * 100);
   await prisma.settings.update({
     where: { id: 1 },
@@ -548,11 +551,14 @@ export async function saveSettings(f: FormData) {
 }
 
 export async function saveStaff(f: FormData) {
-  await requireRole("owner");
+  const me = await requirePermission("settings");
   const id = str(f, "id");
   const email = str(f, "email").toLowerCase();
   const password = str(f, "password");
-  const data = { name: str(f, "name"), email, role: str(f, "role") || "staff", active: str(f, "active") === "on" };
+  const data = { name: str(f, "name"), email, role: str(f, "role"), active: str(f, "active") === "on" };
+  if (!ROLES.some((r) => r.key === data.role)) return back("/admin/settings", undefined, "Pick a role for this login");
+  if (!data.name) return back("/admin/settings", undefined, "Name is required");
+  if (id === me.uid && (data.role !== "owner" || !data.active)) return back("/admin/settings", undefined, "You can't remove your own Admin access");
   if (id) {
     await prisma.adminUser.update({
       where: { id },
@@ -566,7 +572,7 @@ export async function saveStaff(f: FormData) {
 }
 
 export async function saveCustomer(f: FormData) {
-  await requireAdmin();
+  await requirePermission("ops");
   const id = str(f, "id");
   await prisma.customer.update({
     where: { id },
@@ -576,6 +582,6 @@ export async function saveCustomer(f: FormData) {
 }
 
 export async function getCheckoutLink(bookingId: string) {
-  await requireAdmin();
+  await requirePermission("ops");
   return createCheckout(bookingId);
 }

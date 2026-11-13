@@ -6,6 +6,8 @@ import { getSettings } from "@/lib/db";
 import { sendText } from "@/lib/messaging";
 import { appUrl } from "@/lib/mail";
 import { fmtRange } from "@/lib/time";
+import { runAutomations } from "@/lib/campaigns";
+import { refreshReviewsIfDue } from "@/lib/reviews";
 
 /**
  * Run every 15–60 minutes (Vercel Cron, Render cron, or any uptime pinger):
@@ -54,5 +56,9 @@ export async function GET(req: Request) {
     }
   }
 
-  return NextResponse.json({ expired, depositsAttempted: results.length, results, reminders });
+  // CRM automations (pre-arrival, thank-you, win-back…) and review refresh (at most every 12h)
+  const campaigns = await runAutomations(new Date()).catch((e) => ({ error: e instanceof Error ? e.message : "failed" }));
+  const reviews = await refreshReviewsIfDue().catch((e) => ({ error: e instanceof Error ? e.message : "failed" }));
+
+  return NextResponse.json({ expired, depositsAttempted: results.length, results, reminders, campaigns, reviews });
 }

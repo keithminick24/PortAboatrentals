@@ -43,6 +43,8 @@ export default function BookingWizard(props: {
   fees: FeeDef[];
   convenience: { bps: number; cents: number; label: string } | null;
   embedded?: boolean;
+  tipsEnabled?: boolean;
+  tipPercents?: number[];
 }) {
   const [date, setDate] = useState(props.initialDate && props.initialDate >= props.minDate ? props.initialDate : props.minDate);
   const [party, setParty] = useState(2);
@@ -56,6 +58,9 @@ export default function BookingWizard(props: {
   const [optIn, setOptIn] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // Optional crew tip: "none" | "pct:<n>" | "custom"
+  const [tipChoice, setTipChoice] = useState("none");
+  const [customTip, setCustomTip] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -92,6 +97,16 @@ export default function BookingWizard(props: {
     });
   }, [selRate, addOnQty, props.addOns, props.taxRateBps, props.fees, props.convenience]);
 
+  const tipCents = useMemo(() => {
+    if (!props.tipsEnabled || !quote) return 0;
+    if (tipChoice.startsWith("pct:")) return Math.round((quote.subtotalCents * Number(tipChoice.slice(4))) / 100);
+    if (tipChoice === "custom") {
+      const v = Number(customTip.replace(/[$,\s]/g, ""));
+      return Number.isFinite(v) && v > 0 ? Math.min(100000, Math.round(v * 100)) : 0;
+    }
+    return 0;
+  }, [props.tipsEnabled, quote, tipChoice, customTip]);
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!sel) return;
@@ -111,6 +126,7 @@ export default function BookingWizard(props: {
           addOns: Object.entries(addOnQty).map(([addOnId, quantity]) => ({ addOnId, quantity })),
           customerNotes: notes || undefined,
           marketingOptIn: optIn,
+          tipCents: tipCents > 0 ? tipCents : undefined,
         }),
       });
       const data = await res.json();
@@ -271,7 +287,7 @@ export default function BookingWizard(props: {
               Change selection
             </button>
           </div>
-          <Summary boat={selBoat} rate={selRate} time={sel.time} date={date} quote={quote} convenienceLabel={props.convenience?.label ?? ""} />
+          <Summary boat={selBoat} rate={selRate} time={sel.time} date={date} quote={quote} convenienceLabel={props.convenience?.label ?? ""} tipCents={tipCents} />
           <div className="grid gap-4 sm:grid-cols-2">
             {(
               [
@@ -295,6 +311,46 @@ export default function BookingWizard(props: {
               </div>
             ))}
           </div>
+          {props.tipsEnabled && (
+            <fieldset>
+              <legend className="label">Tip your crew (optional)</legend>
+              <p className="muted mb-2">100% goes to the dock crew who get your boat ready. You can also tip at the dock or after your trip.</p>
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { key: "none", label: "No tip" },
+                  ...(props.tipPercents ?? []).map((p) => ({
+                    key: `pct:${p}`,
+                    label: `${p}% · ${money(Math.round((quote.subtotalCents * p) / 100))}`,
+                  })),
+                  { key: "custom", label: "Custom" },
+                ].map((o) => (
+                  <button
+                    key={o.key}
+                    type="button"
+                    onClick={() => setTipChoice(o.key)}
+                    className={`rounded-md border px-3 py-1.5 text-sm font-medium transition ${
+                      tipChoice === o.key ? "border-brand bg-brand text-white" : "border-slate-300 bg-white hover:border-brand hover:text-brand"
+                    }`}
+                  >
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+              {tipChoice === "custom" && (
+                <div className="mt-2 max-w-[10rem]">
+                  <label className="sr-only" htmlFor="customTip">Tip amount</label>
+                  <input
+                    id="customTip"
+                    inputMode="decimal"
+                    className="input"
+                    placeholder="$ amount"
+                    value={customTip}
+                    onChange={(e) => setCustomTip(e.target.value)}
+                  />
+                </div>
+              )}
+            </fieldset>
+          )}
           <div>
             <label className="label" htmlFor="notes">Anything we should know? (optional)</label>
             <textarea id="notes" className="input" rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
@@ -324,6 +380,7 @@ function Summary({
   date,
   quote,
   convenienceLabel,
+  tipCents = 0,
 }: {
   boat: Boat;
   rate: Rate;
@@ -331,6 +388,7 @@ function Summary({
   date: string;
   quote: Quote;
   convenienceLabel: string;
+  tipCents?: number;
 }) {
   return (
     <div className="rounded-lg bg-slate-50 p-4 text-sm">
@@ -351,7 +409,8 @@ function Summary({
         {quote.convenienceFeeCents > 0 && (
           <div className="flex justify-between"><dt>{convenienceLabel}</dt><dd>{money(quote.convenienceFeeCents)}</dd></div>
         )}
-        <div className="flex justify-between border-t border-slate-200 pt-1 font-semibold"><dt>Total due today</dt><dd>{money(quote.totalCents)}</dd></div>
+        {tipCents > 0 && <div className="flex justify-between"><dt>Crew tip</dt><dd>{money(tipCents)}</dd></div>}
+        <div className="flex justify-between border-t border-slate-200 pt-1 font-semibold"><dt>Total due today</dt><dd>{money(quote.totalCents + tipCents)}</dd></div>
       </dl>
     </div>
   );

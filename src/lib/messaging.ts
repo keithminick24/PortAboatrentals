@@ -1,6 +1,7 @@
 import "server-only";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { prisma, getSettings } from "./db";
+import { optKeyword } from "./campaignLogic";
 
 /**
  * Two-way guest texting through Quo (formerly OpenPhone).
@@ -36,6 +37,8 @@ export async function sendText(input: SendInput): Promise<{ ok: boolean; error?:
   const body = input.body.trim().slice(0, 1600);
   if (!phone) return { ok: false, error: "That phone number doesn't look valid." };
   if (!body) return { ok: false, error: "Message is empty." };
+  // Carriers require honoring STOP for every text, including ones staff send by hand.
+  if (await isPhoneOptedOut(phone, input.customerId)) return { ok: false, error: "Guest opted out of texts" };
 
   const msg = await prisma.message.create({
     data: {
@@ -78,6 +81,23 @@ export async function sendText(input: SendInput): Promise<{ ok: boolean; error?:
     await prisma.message.update({ where: { id: msg.id }, data: { status: "failed", error } });
     return { ok: false, error };
   }
+}
+
+/** Every customer whose phone matches this number (last 10 digits). */
+async function customersWithPhone(e164: string) {
+  const last10 = e164.replace(/\D/g, "").slice(-10);
+  if (last10.length < 4) return [];
+  const candidates = await prisma.customer.findMany({ where: { phone: { contains: last10.slice(-4) } }, select: { id: true, phone: true, smsOptOut: true }, take: 100 });
+  return candidates.filter((c) => c.phone.replace(/\D/g, "").slice(-10) === last10);
+}
+
+/** True if this guest replied STOP (by customer id or by any customer with this number). */
+export async function isPhoneOptedOut(e164: string, customerId?: string | null): Promise<boolean> {
+  if (customerId) {
+    const c = await prisma.customer.findUnique({ where: { id: customerId }, select: { smsOptOut: true } });
+    if (c?.smsOptOut) return true;
+  }
+  return (await customersWithPhone(e164)).some((c) => c.smsOptOut);
 }
 
 /** Texts the dock alert phone (Settings → Damage alert phone), if set. */
@@ -131,12 +151,19 @@ type QuoEvent = {
 
 /** Saves an incoming text from the Quo webhook. Idempotent on the Quo message id. */
 export async function handleQuoEvent(evt: QuoEvent) {
+  if (evt.type?.startsWith("call.")) return (await import("./phoneOrders")).handlePhoneCallEvent(evt);
   const r = evt.data?.resource;
   if (!r?.id) return;
   if (evt.type === "message.received") {
     const from = toE164(evt.data?.context?.senderIdentifier ?? "") ?? evt.data?.context?.senderIdentifier ?? "";
     if (await prisma.message.findUnique({ where: { externalId: r.id } })) return;
     const { customer, booking } = await matchCustomer(from);
+    // STOP / START keywords (carrier rules): update text consent for this number
+    const kw = optKeyword(r.text ?? "");
+    if (kw && customer) {
+      const ids = (await customersWithPhone(from)).map((c) => c.id);
+      await prisma.customer.updateMany({ where: { id: { in: ids } }, data: { smsOptOut: kw === "stop" } });
+    }
     const media = (r.media ?? []).map((m) => m.url).join("\n");
     await prisma.message.create({
       data: {

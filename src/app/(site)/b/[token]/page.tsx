@@ -176,6 +176,9 @@ export default async function BookingPage({
       <p className="muted text-center">
         Questions or need to change your booking? Call {settings.phone}.
       </p>
+      <p className="muted text-center text-sm">
+        Had a problem? <Link href={`/r/${token}`} className="text-brand underline">Let us know</Link>
+      </p>
     </div>
   );
 }

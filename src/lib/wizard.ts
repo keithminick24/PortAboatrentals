@@ -21,5 +21,7 @@ export async function bookingWizardProps(sp: { boat?: string; date?: string }) {
     taxRateBps: settings.taxRateBps,
     fees,
     convenience: conv ? { ...conv, label: settings.convenienceFeeLabel } : null,
+    tipsEnabled: settings.tipsEnabled,
+    tipPercents: settings.tipPercents.split(",").map((p) => Number(p.trim())).filter((n) => Number.isFinite(n) && n > 0 && n <= 100),
   };
 }

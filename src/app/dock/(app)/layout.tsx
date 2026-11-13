@@ -15,6 +15,7 @@ export default async function DockLayout({ children }: { children: React.ReactNo
           <Link href="/dock" className="font-bold tracking-wide">PORT A · DOCK</Link>
           <div className="flex items-center gap-3 text-sm">
             <Link href="/dock/boats" className="rounded-md bg-white/15 px-2.5 py-1">Boats</Link>
+            <Link href="/dock/schedule" className="rounded-md bg-white/15 px-2.5 py-1">Schedule</Link>
             {s.role !== "dock" && <Link href="/admin" className="rounded-md bg-white/15 px-2.5 py-1">Office</Link>}
             <form action={dockLogout}><button className="text-white/80">Sign out</button></form>
           </div>

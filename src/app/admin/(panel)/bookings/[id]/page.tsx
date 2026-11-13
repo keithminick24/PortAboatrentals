@@ -17,6 +17,8 @@ import { templates as smsTemplates, toE164 } from "@/lib/messaging";
 import { getSettings } from "@/lib/db";
 import { ANGLE_LABELS } from "@/lib/constants";
 import { resolveFlag } from "@/app/dock/actions";
+import BookingCrewCard from "@/components/crew/BookingCrewCard";
+import BookingIncidents from "@/components/admin/BookingIncidents";
 import {
   cancelBookingAction,
   captureDepositAction,
@@ -111,6 +113,7 @@ export default async function BookingDetail({
       </div>
 
       <FlashMessage msg={sp.msg} err={sp.err} />
+      <BookingIncidents bookingId={b.id} />
       {isMockPayments() && <Notice tone="warn">Test payment mode: deposit holds, captures and refunds are recorded but no card is charged.</Notice>}
 
       <div className="grid gap-6 lg:grid-cols-3">
@@ -419,6 +422,7 @@ export default async function BookingDetail({
             )}
           </div>
 
+          <BookingCrewCard bookingId={b.id} />
           <form action={saveBookingNotes} className="card card-pad space-y-2">
             {hidden}
             <h2 className="h2">Internal notes</h2>

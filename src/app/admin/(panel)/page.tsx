@@ -5,6 +5,8 @@ import { fmtMoney } from "@/lib/money";
 import { addDays, fmtDateStr, fmtTime, isValidDateStr, todayLocal, zonedToUtc } from "@/lib/time";
 import { DEPOSIT_LABELS } from "@/lib/constants";
 import { PageHeader, Pill, Stat, StatusBadge, Empty } from "@/components/ui";
+import PhoneOrdersAlert from "@/components/admin/PhoneOrdersAlert";
+import RiskAlerts from "@/components/admin/RiskAlerts";
 
 export default async function Dashboard({ searchParams }: { searchParams: Promise<{ date?: string }> }) {
   const sp = await searchParams;
@@ -55,6 +57,8 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
           </>
         }
       />
+      <PhoneOrdersAlert />
+      <RiskAlerts />
 
       {overdue.length > 0 && (
         <div className="rounded-xl border-2 border-rose-300 bg-rose-50 p-4">

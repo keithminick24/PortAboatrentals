@@ -10,6 +10,8 @@ import { fmtTime } from "@/lib/time";
 import FlashMessage from "@/components/FlashMessage";
 import DockPhotoGrid, { type GridPhoto } from "@/components/dock/DockPhotoGrid";
 import ReviewPoller from "@/components/dock/ReviewPoller";
+import TowInfo from "@/components/dock/TowInfo";
+import DockTipField from "@/components/crew/DockTipField";
 import { dockCheckIn, dockCheckOut, logDamage, resolveFlag } from "../../../actions";
 
 export default async function DockBooking({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ msg?: string; err?: string }> }) {
@@ -66,6 +68,8 @@ export default async function DockBooking({ params, searchParams }: { params: Pr
           <a href={`tel:${b.customer.phone}`} className="btn-secondary flex-1 justify-center">📞 Call</a>
           <a href={`sms:${b.customer.phone}`} className="btn-secondary flex-1 justify-center">💬 Text</a>
         </div>
+        <div className="mt-3"><TowInfo boat={b.boat} /></div>
+        <Link href={`/dock/incidents/new?bookingId=${b.id}&boatId=${b.boatId}`} className="mt-2 block text-center text-sm font-semibold text-rose-700">⚠ Report incident</Link>
       </div>
 
       <FlashMessage msg={sp.msg} err={sp.err} />
@@ -197,6 +201,7 @@ export default async function DockBooking({ params, searchParams }: { params: Pr
                 <label className="label">Notes for the office (optional)</label>
                 <textarea name="notes" rows={2} className="input" placeholder="Trash left, late, cleaning needed…" />
               </div>
+              <DockTipField booking={b} />
               <button className="w-full rounded-xl bg-emerald-600 py-4 text-lg font-bold text-white disabled:opacity-40" disabled={flags.length > 0}>
                 Check in {b.boat.name}
               </button>

@@ -5,6 +5,7 @@ import { dueStatus } from "@/lib/maintenance";
 import { ANGLE_LABELS } from "@/lib/constants";
 import { fmtDate } from "@/lib/time";
 import FlashMessage from "@/components/FlashMessage";
+import TowInfo from "@/components/dock/TowInfo";
 import { dockLogMaintenance, logDamage, markRepaired } from "../../../actions";
 
 export default async function DockBoat({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ msg?: string; err?: string }> }) {
@@ -28,6 +29,8 @@ export default async function DockBoat({ params, searchParams }: { params: Promi
       <div className="rounded-xl bg-white p-4 shadow-sm">
         <h1 className="text-2xl font-bold">{boat.name}</h1>
         <div className="text-sm text-slate-500">{boat.engineHours.toFixed(1)} engine hours{boat.registration ? ` · ${boat.registration}` : ""}</div>
+        <div className="mt-3"><TowInfo boat={boat} /></div>
+        <Link href={`/dock/incidents/new?boatId=${boat.id}`} className="mt-2 block text-center text-sm font-semibold text-rose-700">⚠ Report incident</Link>
       </div>
       <FlashMessage msg={sp.msg} err={sp.err} />
 
