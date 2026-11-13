@@ -1,0 +1,321 @@
+// Port A Boat Rentals - booking & operations database
+//
+// Local development uses SQLite. For production switch `provider` to
+// "postgresql" and point DATABASE_URL at your Postgres database.
+// Status-like fields are plain strings (see src/lib/constants.ts) so the
+// schema works identically on SQLite and Postgres.
+// All money is stored in integer cents.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model AdminUser {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  role         String   @default("staff") // owner | manager | staff
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+}
+
+// ---------- Inventory ----------
+
+model Boat {
+  id             String   @id @default(cuid())
+  name           String
+  slug           String   @unique
+  type           String   @default("Tritoon")
+  description    String   @default("")
+  capacity       Int      @default(10)
+  lengthFt       Int?
+  horsepower     Int?
+  imageUrl       String?
+  depositCents   Int      @default(50000)
+  // available | maintenance | retired
+  status         String   @default("available")
+  sortOrder      Int      @default(0)
+  // Operational tracking
+  engineHours    Float    @default(0)
+  registration   String?  // TX registration number
+  hullId         String?  // HIN
+  notes          String   @default("")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  rates          Rate[]
+  bookings       Booking[]
+  blocks         BoatBlock[]
+  maintenance    MaintenanceLog[]
+}
+
+// A bookable duration and its price, e.g. "Half Day (4 hrs)" $450
+model Rate {
+  id          String  @id @default(cuid())
+  boatId      String
+  boat        Boat    @relation(fields: [boatId], references: [id], onDelete: Cascade)
+  label       String
+  minutes     Int
+  priceCents  Int
+  // Optional weekend/holiday price; null = same as priceCents
+  weekendPriceCents Int?
+  active      Boolean @default(true)
+  sortOrder   Int     @default(0)
+  bookings    Booking[]
+}
+
+// Optional extras (Mega Chill, paddle boards, coolers, etc.)
+model AddOn {
+  id          String  @id @default(cuid())
+  name        String
+  description String  @default("")
+  priceCents  Int
+  // Total units owned; bookings can't exceed this at any moment
+  quantity    Int     @default(1)
+  active      Boolean @default(true)
+  sortOrder   Int     @default(0)
+  bookingAddOns BookingAddOn[]
+}
+
+// Time a boat can't be booked (maintenance, owner use, weather closures)
+model BoatBlock {
+  id        String   @id @default(cuid())
+  boatId    String?  // null = applies to the whole fleet
+  boat      Boat?    @relation(fields: [boatId], references: [id], onDelete: Cascade)
+  startsAt  DateTime
+  endsAt    DateTime
+  reason    String   @default("")
+  createdAt DateTime @default(now())
+}
+
+model MaintenanceLog {
+  id          String   @id @default(cuid())
+  boatId      String
+  boat        Boat     @relation(fields: [boatId], references: [id], onDelete: Cascade)
+  performedAt DateTime @default(now())
+  engineHours Float?
+  description String
+  costCents   Int?
+  createdBy   String?
+  createdAt   DateTime @default(now())
+}
+
+// ---------- Customers & bookings ----------
+
+model Customer {
+  id              String   @id @default(cuid())
+  firstName       String
+  lastName        String
+  email           String   @unique
+  phone           String
+  stripeCustomerId String?
+  notes           String   @default("")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  bookings        Booking[]
+}
+
+model Booking {
+  id            String   @id @default(cuid())
+  // Short human-friendly code customers see, e.g. PA-7K3QX
+  code          String   @unique
+  // Secret tokens for the customer's manage link and the passenger waiver link
+  accessToken   String   @unique
+  waiverToken   String   @unique
+  boatId        String
+  boat          Boat     @relation(fields: [boatId], references: [id])
+  rateId        String?
+  rate          Rate?    @relation(fields: [rateId], references: [id], onDelete: SetNull)
+  customerId    String
+  customer      Customer @relation(fields: [customerId], references: [id])
+
+  startsAt      DateTime
+  endsAt        DateTime
+  partySize     Int      @default(1)
+
+  // pending (awaiting signature/payment) | confirmed | checked_out | returned | completed | cancelled | no_show
+  status        String   @default("pending")
+  // Pending bookings hold inventory until this time, then are released
+  holdExpiresAt DateTime?
+  source        String   @default("online") // online | admin | phone
+
+  // Money (cents)
+  subtotalCents Int
+  addOnsCents   Int      @default(0)
+  taxCents      Int      @default(0)
+  feesCents     Int      @default(0)
+  totalCents    Int
+  paidCents     Int      @default(0)
+  refundedCents Int      @default(0)
+  // unpaid | paid | partially_refunded | refunded
+  paymentStatus String   @default("unpaid")
+
+  // Security deposit
+  depositCents          Int      @default(0)
+  // none | card_saved | held | released | captured | partially_captured
+  depositStatus         String   @default("none")
+  depositCapturedCents  Int      @default(0)
+  depositHeldAt         DateTime?
+
+  // Stripe references
+  stripeCheckoutSessionId String?
+  stripePaymentIntentId   String?
+  stripePaymentMethodId   String?
+  stripeDepositIntentId   String?
+
+  // Operations
+  checkedOutAt     DateTime?
+  checkedOutBy     String?
+  returnedAt       DateTime?
+  returnedBy       String?
+  fuelOut          String?  // e.g. "Full", "3/4"
+  fuelIn           String?
+  engineHoursOut   Float?
+  engineHoursIn    Float?
+  damageNotes      String   @default("")
+  internalNotes    String   @default("")
+  customerNotes    String   @default("")
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  addOns        BookingAddOn[]
+  signatures    Signature[]
+  photos        Photo[]
+  payments      Payment[]
+  events        BookingEvent[]
+
+  @@index([boatId, startsAt, endsAt])
+  @@index([startsAt])
+}
+
+model BookingAddOn {
+  id         String  @id @default(cuid())
+  bookingId  String
+  booking    Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  addOnId    String
+  addOn      AddOn   @relation(fields: [addOnId], references: [id])
+  quantity   Int     @default(1)
+  priceCents Int     // unit price at time of booking
+}
+
+// ---------- Contracts / waivers ----------
+
+model ContractTemplate {
+  id        String   @id @default(cuid())
+  name      String   // e.g. "Rental Agreement & Liability Waiver"
+  version   Int
+  body      String   // Markdown-ish plain text
+  required  Boolean  @default(true)
+  active    Boolean  @default(true)
+  // Who must sign: "renter" (primary operator) or "all" (every passenger)
+  signer    String   @default("renter")
+  createdAt DateTime @default(now())
+  signatures Signature[]
+
+  @@unique([name, version])
+}
+
+model Signature {
+  id           String   @id @default(cuid())
+  bookingId    String
+  booking      Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  templateId   String
+  template     ContractTemplate @relation(fields: [templateId], references: [id])
+  signerName   String
+  signerEmail  String?
+  // true = the primary renter/operator, false = additional passenger/driver
+  isPrimary    Boolean  @default(true)
+  dateOfBirth  String?
+  // Texas requires boater education for operators born on/after 9/1/1993
+  boaterEdNumber String?
+  // PNG data URL of the drawn signature
+  signatureData String
+  // Exact text the signer agreed to, and its SHA-256 for tamper evidence
+  bodySnapshot String
+  bodyHash     String
+  ipAddress    String?
+  userAgent    String?
+  signedAt     DateTime @default(now())
+}
+
+// ---------- Photos ----------
+
+model Photo {
+  id         String   @id @default(cuid())
+  bookingId  String
+  booking    Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  // before | after | damage | other
+  phase      String
+  storageKey String
+  contentType String
+  sizeBytes  Int
+  caption    String   @default("")
+  uploadedBy String?
+  createdAt  DateTime @default(now())
+}
+
+// ---------- Money ledger ----------
+
+model Payment {
+  id          String   @id @default(cuid())
+  bookingId   String
+  booking     Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  // charge | refund | deposit_hold | deposit_release | deposit_capture | manual
+  kind        String
+  amountCents Int
+  method      String   @default("card") // card | cash | mock | other
+  stripeId    String?
+  note        String   @default("")
+  createdBy   String?
+  createdAt   DateTime @default(now())
+}
+
+// Audit trail of everything that happens to a booking
+model BookingEvent {
+  id        String   @id @default(cuid())
+  bookingId String
+  booking   Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  type      String
+  message   String
+  actor     String?
+  createdAt DateTime @default(now())
+}
+
+// ---------- Settings (single row) ----------
+
+model Settings {
+  id                 Int     @id @default(1)
+  businessName       String  @default("Port A Boat Rentals")
+  phone              String  @default("361-339-2628")
+  email              String  @default("bookings@portaboatrentals.com")
+  address            String  @default("Port Aransas, TX")
+  // Daily operating window in local time, "HH:MM"
+  openTime           String  @default("08:00")
+  closeTime          String  @default("19:00")
+  // Start-time granularity in minutes
+  slotIntervalMin    Int     @default(30)
+  // Turnaround/cleaning time between rentals on the same boat
+  bufferMin          Int     @default(30)
+  // How far ahead customers can book / minimum notice
+  maxAdvanceDays     Int     @default(180)
+  minNoticeHours     Int     @default(2)
+  // Sales tax in basis points (825 = 8.25%)
+  taxRateBps         Int     @default(825)
+  // Booking/processing fee in basis points of subtotal
+  feeRateBps         Int     @default(0)
+  // Free cancellation if cancelled at least this many hours before start
+  cancelWindowHours  Int     @default(48)
+  // Minutes a pending (unpaid) booking holds the boat
+  holdMinutes        Int     @default(20)
+  // Weekend days for weekend pricing (0=Sun..6=Sat), comma separated
+  weekendDays        String  @default("0,6")
+  confirmationNote   String  @default("Please arrive 20 minutes early for your safety briefing. Bring a valid photo ID and the card used to book.")
+  updatedAt          DateTime @updatedAt
+}

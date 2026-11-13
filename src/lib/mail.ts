@@ -1,0 +1,40 @@
+import "server-only";
+import nodemailer from "nodemailer";
+
+type Mail = { to: string; subject: string; html: string; text?: string };
+
+let transport: nodemailer.Transporter | null = null;
+
+export async function sendMail(m: Mail): Promise<void> {
+  if (!process.env.SMTP_HOST) {
+    console.log(`\n[email:dev] To: ${m.to}\nSubject: ${m.subject}\n${m.text ?? m.html.replace(/<[^>]+>/g, "")}\n`);
+    return;
+  }
+  transport ??= nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: Number(process.env.SMTP_PORT || 587),
+    secure: Number(process.env.SMTP_PORT) === 465,
+    auth: process.env.SMTP_USER ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } : undefined,
+  });
+  try {
+    await transport.sendMail({ from: process.env.EMAIL_FROM, ...m });
+  } catch (e) {
+    // Never let an email failure break a booking flow
+    console.error("[email] send failed", e);
+  }
+}
+
+export function appUrl(path = "") {
+  return (process.env.APP_URL || "http://localhost:3000").replace(/\/$/, "") + path;
+}
+
+export function emailLayout(title: string, body: string) {
+  return `<!doctype html><html><body style="margin:0;background:#F6EFE3;font-family:Helvetica,Arial,sans-serif;color:#1f2937">
+<div style="max-width:560px;margin:0 auto;padding:24px">
+<div style="background:#1E6286;color:#fff;padding:18px 24px;border-radius:12px 12px 0 0;font-size:20px;font-weight:bold">Port A Boat Rentals</div>
+<div style="background:#fff;padding:24px;border-radius:0 0 12px 12px">
+<h2 style="margin-top:0;color:#1E6286">${title}</h2>${body}
+</div>
+<p style="font-size:12px;color:#6b7280;text-align:center">Port A Boat Rentals · Port Aransas, TX · 361-339-2628</p>
+</div></body></html>`;
+}
