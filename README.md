@@ -28,6 +28,28 @@ Online booking, contracts, payments, deposits, and dock operations for Port A Bo
 - **Maintenance**: service intervals per boat by engine hours and/or days with due alerts, full log per boat and for equipment, damage history per boat
 - Roles: **Owner**, **Manager** (refunds and captures), **Staff** (check-in/out and photos), and **Dock crew** (dock app only)
 
+**Customers, marketing & reputation**
+- CRM: tags, how they found us, promotion opt-in (checkbox at booking), text/email opt-outs (STOP honored), full message history
+- Campaigns: automated pre-arrival, day-of, thank-you + review request, win-back; one-time promotions to filtered groups; merge tags; test sends
+- Reviews: Google and Facebook rating, count and trend, recent reviews (needs GOOGLE_PLACES_API_KEY / FACEBOOK_PAGE_ACCESS_TOKEN)
+
+**Money**
+- Expenses pulled from Xero (or typed / CSV), mapped to cost types and boats
+- Gross profit per booking and per boat, using actual Xero costs when present and your cost assumptions otherwise; breakeven trips per boat per month
+- Monthly goals and budget, actual vs goal, and a 3-month forecast
+
+**Crew**
+- Weekly schedule, time off, clock in/out, hours & overtime, tips (online at booking, at the dock, post-trip text link) split evenly across the trip's crew, CSV for Gusto payroll
+
+**Safety & paperwork**
+- Incident reports from crew (dock app) and guests (link on their booking page), with photos, alerts and TPWD/insurer reminders
+- Insurance policies (with document upload and expiry alerts) and tow company info per boat; crew get a one-tap "Call tow" button
+
+**Phone bookings (Quo AI)**
+- Calls answered by Quo's AI become booking requests; staff review, approve, and the guest is texted a link to sign and pay
+
+**Roles**: Admin (owner), Manager, Accounting, Office (staff), Crew (dock) — each sees only their areas.
+
 **For the dock crew** (`/dock`, phone-first)
 - Today's departures, boats on the water (overdue in red), and returns
 - Guided check-out: agreement/payment/waiver checks, 8 guided photos (bow, sides, stern, helm, seating, engine, prop), engine hours, fuel, deposit hold
@@ -61,12 +83,14 @@ With no `STRIPE_SECRET_KEY`, the app runs in **test payment mode**. Every paymen
    - Create a webhook to `https://YOUR-APP/api/stripe/webhook` for `checkout.session.completed`, `checkout.session.async_payment_succeeded`, and `charge.dispute.created`.
    - Put its signing secret in `STRIPE_WEBHOOK_SECRET`.
 5. **Scheduled job**: call `GET /api/cron` with header `Authorization: Bearer $CRON_SECRET` every 15–30 minutes. It releases abandoned unpaid holds and places deposit holds about 24 hours before each trip. Card holds only last about 7 days, which is why the hold isn't placed at booking time.
-6. **Texting (Quo)**: in Quo, create an API key and find your phone number ID (starts with `PN`). Set `QUO_API_KEY` and `QUO_PHONE_NUMBER_ID`. Create a webhook to `https://YOUR-APP/api/quo/webhook` for `message.received`, `message.delivered`, `message.failed`, `message.undelivered`, and put its `whsec_…` key in `QUO_WEBHOOK_SECRET`.
-7. **Photo damage check**: set `ANTHROPIC_API_KEY` (console.anthropic.com). Each check-out/check-in photo is one request, roughly a few cents each.
-8. **Email**: set SMTP credentials (Google Workspace, Postmark, SES…) and `STAFF_NOTIFY_EMAIL` for new-booking alerts.
-9. **Your real data**: in Admin → Fleet, edit the sample tritoons: names, photos, real prices, deposits. Then set tax, hours, buffer, and cancellation policy in Settings.
-10. **Contract**: the included agreement is a starting template. **Have a Texas maritime attorney review it** before customers sign it.
-11. **Domain and website**:
+6. **Texting (Quo)**: in Quo, create an API key and find your phone number ID (starts with `PN`). Set `QUO_API_KEY` and `QUO_PHONE_NUMBER_ID`. Create a webhook to `https://YOUR-APP/api/quo/webhook` for `message.received`, `message.delivered`, `message.failed`, `message.undelivered`, `call.summary.completed`, `call.transcript.completed` (the call events power AI phone booking requests), and put its `whsec_…` key in `QUO_WEBHOOK_SECRET`.
+7. **Xero**: create an app at developer.xero.com (Web app), set `XERO_CLIENT_ID` / `XERO_CLIENT_SECRET`, add the redirect URI shown on Admin → Money → Expenses & Xero, then click Connect.
+8. **Reviews**: `GOOGLE_PLACES_API_KEY` (Google Cloud, Places API (New)) and `FACEBOOK_PAGE_ACCESS_TOKEN`; set your Place ID and review links on Admin → Reviews.
+9. **Photo damage check & phone AI**: set `ANTHROPIC_API_KEY` (console.anthropic.com). Each check-out/check-in photo is one request, roughly a few cents each.
+10. **Email**: set SMTP credentials (Google Workspace, Postmark, SES…) and `STAFF_NOTIFY_EMAIL` for new-booking alerts.
+11. **Your real data**: in Admin → Fleet, edit the sample tritoons: names, photos, real prices, deposits. Then set tax, hours, buffer, and cancellation policy in Settings.
+12. **Contract**: the included agreement is a starting template. **Have a Texas maritime attorney review it** before customers sign it.
+13. **Domain and website**:
    - Point a subdomain at the app, for example `book.portaboatrentals.com`. Once Storable is retired, you can use `rentals.portaboatrentals.com`.
    - On WordPress, link "Book Now" buttons to `/book`, or paste the iframe snippet from Admin → Settings.
 

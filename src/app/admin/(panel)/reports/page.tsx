@@ -71,6 +71,10 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
           </form>
         }
       />
+      <div className="-mt-3 flex flex-wrap gap-2">
+        <a href={`/admin/profit?from=${from}&to=${to}`} className="btn-secondary btn-sm">Profit &amp; breakeven →</a>
+        <a href="/admin/budget" className="btn-secondary btn-sm">Budget &amp; forecast →</a>
+      </div>
       <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
         <Stat label="Trips" value={bookings.length} />
         <Stat label="Collected" value={fmtMoney(gross)} />

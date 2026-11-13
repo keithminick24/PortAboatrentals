@@ -57,6 +57,12 @@ const SIG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCA
     update: {},
     create: { email: "dock@portaboatrentals.com", name: "Dock Crew", role: "dock", passwordHash: await bcrypt.hash("dock-test", 10) },
   });
+  await prisma.adminUser.upsert({
+    where: { email: "accounting@portaboatrentals.com" },
+    update: {},
+    create: { email: "accounting@portaboatrentals.com", name: "Bookkeeper", role: "accounting", passwordHash: await bcrypt.hash("acct-test", 10) },
+  });
   console.log("Dock crew login: dock@portaboatrentals.com / dock-test");
+  console.log("Accounting login: accounting@portaboatrentals.com / acct-test");
   await prisma.$disconnect();
 })();

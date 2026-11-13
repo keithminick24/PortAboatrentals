@@ -480,7 +480,7 @@ export const PICKUP_WINDOW_DAYS = 28;
  *   actual     = revenue of the month's trips before today
  *   booked     = revenue of the month's trips today or later that are already booked
  *   projected  = pickup rate × days left
- *       pickup rate = revenue of bookings MADE in the last 28 days (before today)
+ *       pickup rate = revenue of bookings MADE in the last 28 days (today included)
  *                     for trips in this month, ÷ 28   → "$ of new bookings per day"
  *       days left   = days from today through the last day of the month
  *                     (0 for a month that's over)
@@ -497,11 +497,11 @@ export function forecastFrom(month: string, today: string, trips: ForecastTrip[]
     if (localDate(t.startsAt) < today) actual += t.revenueCents;
     else booked += t.revenueCents;
   }
-  const windowStart = addDays(today, -PICKUP_WINDOW_DAYS);
+  const windowStart = addDays(today, -(PICKUP_WINDOW_DAYS - 1));
   const pickup = inMonth
     .filter((t) => {
       const c = localDate(t.createdAt);
-      return c >= windowStart && c < today;
+      return c >= windowStart && c <= today;
     })
     .reduce((s, t) => s + t.revenueCents, 0);
   const daily = pickup / PICKUP_WINDOW_DAYS;

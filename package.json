@@ -9,11 +9,11 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "db:push": "prisma db push",
-    "db:seed": "tsx prisma/seed.ts",
+    "db:seed": "tsx prisma/seed.ts && tsx --conditions=react-server prisma/seed-extras.ts",
     "db:reset": "prisma db push --force-reset && tsx prisma/seed.ts",
-    "setup": "prisma db push && tsx prisma/seed.ts",
+    "setup": "prisma db push && tsx prisma/seed.ts && tsx --conditions=react-server prisma/seed-extras.ts",
     "db:demo": "tsx --conditions=react-server prisma/demo-data.ts",
-    "setup:demo": "prisma db push && tsx prisma/seed.ts && tsx --conditions=react-server prisma/demo-data.ts"
+    "setup:demo": "prisma db push && tsx prisma/seed.ts && tsx --conditions=react-server prisma/seed-extras.ts && tsx --conditions=react-server prisma/demo-data.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.8.0",
