@@ -8,12 +8,12 @@ export async function POST(_req: Request, { params }: { params: Promise<{ token:
   const { token } = await params;
   const b = await prisma.booking.findUnique({ where: { accessToken: token } });
   if (!b) return NextResponse.json({ error: "Booking not found" }, { status: 404 });
-  if (b.status === "cancelled") return NextResponse.redirect(appUrl(`/b/${token}`), 303);
-  if ((await missingPrimarySignatures(b.id)).length > 0) return NextResponse.redirect(appUrl(`/b/${token}/sign`), 303);
+  if (b.status === "cancelled") return NextResponse.redirect(await appUrl(`/b/${token}`), 303);
+  if ((await missingPrimarySignatures(b.id)).length > 0) return NextResponse.redirect(await appUrl(`/b/${token}/sign`), 303);
   // Give the customer a fresh hold window while they're at checkout
   if (b.status === "pending" && b.holdExpiresAt) {
     if (b.holdExpiresAt < new Date() && !(await isSlotStillFree(b.id))) {
-      return NextResponse.redirect(appUrl(`/b/${token}?taken=1`), 303);
+      return NextResponse.redirect(await appUrl(`/b/${token}?taken=1`), 303);
     }
     await prisma.booking.update({ where: { id: b.id }, data: { holdExpiresAt: new Date(Date.now() + 30 * 60000) } });
   }

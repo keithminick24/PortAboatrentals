@@ -132,6 +132,10 @@ export type CreateBookingInput = {
   staffOverride?: boolean;
   /** Card convenience fee applies unless false (e.g. staff bookings paid in cash). */
   convenienceFee?: boolean;
+  /** Optional crew tip chosen at booking (not taxed, no convenience fee). */
+  tipCents?: number;
+  /** Customer agreed to promotional texts/emails. Only ever turns consent ON. */
+  marketingOptIn?: boolean;
 };
 
 /** Active mandatory fees in the shape the pricing engine expects. */
@@ -248,12 +252,14 @@ export async function createBooking(input: CreateBookingInput) {
     const customer = await tx.customer.upsert({
       where: { email },
       update: {
+        ...(input.marketingOptIn ? { marketingOptIn: true } : {}),
         firstName: input.customer.firstName.trim(),
         lastName: input.customer.lastName.trim(),
         phone: input.customer.phone.trim(),
       },
       create: {
         email,
+        marketingOptIn: !!input.marketingOptIn,
         firstName: input.customer.firstName.trim(),
         lastName: input.customer.lastName.trim(),
         phone: input.customer.phone.trim(),
@@ -283,7 +289,8 @@ export async function createBooking(input: CreateBookingInput) {
         includedFeesCents: quote.includedCents,
         taxCents: quote.taxCents,
         convenienceFeeCents: quote.convenienceFeeCents,
-        totalCents: quote.totalCents,
+        tipCents: Math.max(0, Math.round(input.tipCents ?? 0)),
+        totalCents: quote.totalCents + Math.max(0, Math.round(input.tipCents ?? 0)),
         fees: {
           create: feeLines.map((l) => ({ feeId: l.feeId, name: l.name, mode: l.mode, amountCents: l.amountCents, taxable: l.taxable })),
         },
@@ -352,8 +359,15 @@ export async function onBookingConfirmed(bookingId: string) {
   if (!b) return;
   const settings = await getSettings();
   await logEvent(b.id, "confirmed", "Booking confirmed", "system");
-  const link = appUrl(`/b/${b.accessToken}`);
-  const waiver = appUrl(`/w/${b.waiverToken}`);
+  // Tip chosen at booking becomes a Tip record for the crew once paid
+  if (b.tipCents > 0 && !(await prisma.tip.findFirst({ where: { bookingId: b.id, source: "booking" } }))) {
+    const charge = b.payments.find((p) => p.kind === "charge");
+    await prisma.tip.create({
+      data: { bookingId: b.id, amountCents: b.tipCents, method: charge?.method === "mock" ? "mock" : "card", source: "booking", stripeId: charge?.stripeId ?? null },
+    });
+  }
+  const link = await appUrl(`/b/${b.accessToken}`);
+  const waiver = await appUrl(`/w/${b.waiverToken}`);
   await sendMail({
     to: b.customer.email,
     subject: `You're booked! ${b.boat.name} · ${fmtRange(b.startsAt, b.endsAt)}`,
@@ -387,7 +401,7 @@ export async function onBookingConfirmed(bookingId: string) {
         "New booking",
         `<p>${b.customer.firstName} ${b.customer.lastName} (${b.customer.phone}) · party of ${b.partySize}</p>
 <p>${b.boat.name} – ${b.rate?.label ?? ""}<br>${fmtRange(b.startsAt, b.endsAt)}<br>${fmtMoney(b.totalCents)}</p>
-<p><a href="${appUrl(`/admin/bookings/${b.id}`)}">Open in admin</a></p>`,
+<p><a href="${await appUrl(`/admin/bookings/${b.id}`)}">Open in admin</a></p>`,
       ),
     });
   }

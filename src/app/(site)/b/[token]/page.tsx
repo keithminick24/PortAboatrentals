@@ -60,7 +60,7 @@ export default async function BookingPage({
   const missing = await missingPrimarySignatures(b.id);
   const balance = b.totalCents - b.paidCents;
   const passengerSigs = b.signatures.filter((s) => !s.isPrimary);
-  const waiverUrl = appUrl(`/w/${b.waiverToken}`);
+  const waiverUrl = await appUrl(`/w/${b.waiverToken}`);
   const cancellable = canCustomerCancel(b, settings.cancelWindowHours);
   const expired = b.status === "pending" && b.holdExpiresAt && b.holdExpiresAt < new Date();
 

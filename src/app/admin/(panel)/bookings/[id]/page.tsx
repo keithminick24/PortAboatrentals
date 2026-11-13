@@ -68,8 +68,8 @@ export default async function BookingDetail({
       code: b.code,
       boatName: b.boat.name,
       when: fmtRange(b.startsAt, b.endsAt),
-      manageUrl: appUrl(`/b/${b.accessToken}`),
-      waiverUrl: appUrl(`/w/${b.waiverToken}`),
+      manageUrl: await appUrl(`/b/${b.accessToken}`),
+      waiverUrl: await appUrl(`/w/${b.waiverToken}`),
       firstName: b.customer.firstName,
     },
     settings.businessName,
@@ -281,7 +281,7 @@ export default async function BookingDetail({
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="h2">Signed agreements ({b.signatures.length})</h2>
               <div className="flex items-center gap-2 text-xs">
-                Guest waiver link: <CopyButton text={appUrl(`/w/${b.waiverToken}`)} label="Copy link" />
+                Guest waiver link: <CopyButton text={await appUrl(`/w/${b.waiverToken}`)} label="Copy link" />
               </div>
             </div>
             {required.filter((t) => !primarySigs.some((s) => s.template.name === t.name)).map((t) => (
@@ -390,7 +390,7 @@ export default async function BookingDetail({
           <div className="card card-pad space-y-3">
             <h2 className="h2">Customer link</h2>
             <div className="flex flex-wrap gap-2">
-              <CopyButton text={appUrl(`/b/${b.accessToken}`)} label="Copy booking link" />
+              <CopyButton text={await appUrl(`/b/${b.accessToken}`)} label="Copy booking link" />
               <form action={sendPaymentLinkAction}>{hidden}<button className="btn-secondary btn-sm">Email link</button></form>
               {b.status !== "pending" && <form action={resendConfirmationAction}>{hidden}<button className="btn-secondary btn-sm">Resend confirmation</button></form>}
             </div>

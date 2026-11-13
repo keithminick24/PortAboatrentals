@@ -47,7 +47,7 @@ export async function GET(req: Request) {
         customerId: b.customerId,
         bookingId: b.id,
         sentBy: "Auto",
-        body: `${settings.businessName} reminder: ${b.boat.name} is reserved for ${fmtRange(b.startsAt, b.endsAt)}. Please arrive 20 min early with photo ID and your boater-ed card. Guests who haven't signed the waiver can do it here: ${appUrl(`/w/${b.waiverToken}`)}`,
+        body: `${settings.businessName} reminder: ${b.boat.name} is reserved for ${fmtRange(b.startsAt, b.endsAt)}. Please arrive 20 min early with photo ID and your boater-ed card. Guests who haven't signed the waiver can do it here: ${await appUrl(`/w/${b.waiverToken}`)}`,
       });
       await prisma.booking.update({ where: { id: b.id }, data: { reminderSentAt: new Date() } });
       reminders++;

@@ -17,6 +17,9 @@ const schema = z.object({
   }),
   addOns: z.array(z.object({ addOnId: z.string(), quantity: z.number().int().min(0).max(20) })).default([]),
   customerNotes: z.string().max(2000).optional(),
+  // Optional crew tip in cents (capped at $1,000)
+  tipCents: z.number().int().min(0).max(100000).optional(),
+  marketingOptIn: z.boolean().optional(),
 });
 
 export async function POST(req: Request) {

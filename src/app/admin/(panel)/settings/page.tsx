@@ -18,7 +18,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   const staff = await prisma.adminUser.findMany({ orderBy: { createdAt: "asc" } });
   const weekend = s.weekendDays.split(",");
   const isOwner = me.role === "owner";
-  const embed = `<iframe src="${appUrl("/embed/book")}" style="width:100%;min-height:1100px;border:0" title="Book a boat"></iframe>`;
+  const embed = `<iframe src="${await appUrl("/embed/book")}" style="width:100%;min-height:1100px;border:0" title="Book a boat"></iframe>`;
 
   return (
     <div className="max-w-4xl space-y-6">
@@ -31,11 +31,11 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         <div>Payments: {isMockPayments() ? <Pill tone="amber">Test mode (no Stripe key)</Pill> : <Pill tone="green">Stripe live</Pill>}</div>
         <div>Email: {process.env.SMTP_HOST ? <Pill tone="green">SMTP configured</Pill> : <Pill tone="amber">Logging to console only</Pill>}</div>
         <div>Photo storage: <Pill>{process.env.STORAGE_DRIVER || "local"}</Pill></div>
-        <div>Texting: {isQuoEnabled() ? <Pill tone="green">Quo connected</Pill> : <Pill tone="amber">Test mode (texts saved, not sent)</Pill>} <span className="muted">Webhook URL for Quo: {appUrl("/api/quo/webhook")}</span></div>
+        <div>Texting: {isQuoEnabled() ? <Pill tone="green">Quo connected</Pill> : <Pill tone="amber">Test mode (texts saved, not sent)</Pill>} <span className="muted">Webhook URL for Quo: {await appUrl("/api/quo/webhook")}</span></div>
         <div>Photo damage check: {isDamageReviewEnabled() ? <Pill tone="green">On</Pill> : <Pill tone="amber">Off (add ANTHROPIC_API_KEY)</Pill>}</div>
         <div className="pt-2">
           <div className="font-medium">Embed on WordPress</div>
-          <p className="muted">Paste into a Custom HTML block on portaboatrentals.com, or just link your &quot;Book Now&quot; buttons to {appUrl("/book")}.</p>
+          <p className="muted">Paste into a Custom HTML block on portaboatrentals.com, or just link your &quot;Book Now&quot; buttons to {await appUrl("/book")}.</p>
           <div className="mt-1 flex items-start gap-2">
             <code className="block flex-1 overflow-x-auto rounded bg-slate-100 p-2 text-xs">{embed}</code>
             <CopyButton text={embed} />

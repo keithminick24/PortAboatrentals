@@ -60,6 +60,7 @@ function checkoutLines(b: LoadedBooking, balance: number) {
   ];
   if (b.taxCents > 0) lines.push(line("Sales tax", b.taxCents));
   if (b.convenienceFeeCents > 0) lines.push(line("Card convenience fee", b.convenienceFeeCents));
+  if (b.tipCents > 0) lines.push(line("Crew tip", b.tipCents));
   const sum = lines.reduce((s, l) => s + l.price_data.unit_amount * l.quantity, 0);
   // Safety net: if anything doesn't add up, fall back to one line for the exact balance.
   return sum === balance ? lines : [line(`${b.boat.name} - ${b.rate?.label ?? "Boat rental"}`, balance, `Booking ${b.code}`)];
@@ -82,9 +83,9 @@ async function ensureStripeCustomer(customerId: string): Promise<string> {
 export async function createCheckout(bookingId: string): Promise<string> {
   const b = await loadBooking(bookingId);
   const balance = b.totalCents - b.paidCents;
-  if (balance <= 0) return appUrl(`/b/${b.accessToken}`);
+  if (balance <= 0) return await appUrl(`/b/${b.accessToken}`);
 
-  if (isMockPayments()) return appUrl(`/b/${b.accessToken}/mock-pay`);
+  if (isMockPayments()) return await appUrl(`/b/${b.accessToken}/mock-pay`);
 
   const customer = await ensureStripeCustomer(b.customerId);
   const session = await stripe().checkout.sessions.create({
@@ -97,8 +98,8 @@ export async function createCheckout(bookingId: string): Promise<string> {
       metadata: { bookingId: b.id, code: b.code },
     },
     metadata: { bookingId: b.id, code: b.code },
-    success_url: appUrl(`/b/${b.accessToken}?session_id={CHECKOUT_SESSION_ID}`),
-    cancel_url: appUrl(`/b/${b.accessToken}`),
+    success_url: await appUrl(`/b/${b.accessToken}?session_id={CHECKOUT_SESSION_ID}`),
+    cancel_url: await appUrl(`/b/${b.accessToken}`),
     expires_at: Math.floor(Date.now() / 1000) + 31 * 60,
   });
   await prisma.booking.update({ where: { id: b.id }, data: { stripeCheckoutSessionId: session.id } });

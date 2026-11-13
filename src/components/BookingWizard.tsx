@@ -53,6 +53,7 @@ export default function BookingWizard(props: {
   const [step, setStep] = useState<"choose" | "details">("choose");
   const [customer, setCustomer] = useState({ firstName: "", lastName: "", email: "", phone: "" });
   const [notes, setNotes] = useState("");
+  const [optIn, setOptIn] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -109,6 +110,7 @@ export default function BookingWizard(props: {
           customer,
           addOns: Object.entries(addOnQty).map(([addOnId, quantity]) => ({ addOnId, quantity })),
           customerNotes: notes || undefined,
+          marketingOptIn: optIn,
         }),
       });
       const data = await res.json();
@@ -297,6 +299,10 @@ export default function BookingWizard(props: {
             <label className="label" htmlFor="notes">Anything we should know? (optional)</label>
             <textarea id="notes" className="input" rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
           </div>
+          <label className="flex items-start gap-2 text-sm text-slate-700">
+            <input type="checkbox" className="mt-1" checked={optIn} onChange={(e) => setOptIn(e.target.checked)} />
+            <span>Send me occasional deals and news by text and email. Msg &amp; data rates may apply. Reply STOP to opt out anytime. (Optional)</span>
+          </label>
           <p className="muted">
             Next you&apos;ll sign the rental agreement and pay. A refundable {money(selBoat.depositCents)} security deposit is
             authorized on your card shortly before your trip and released after the boat is returned.

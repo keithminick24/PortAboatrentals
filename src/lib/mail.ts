@@ -24,8 +24,28 @@ export async function sendMail(m: Mail): Promise<void> {
   }
 }
 
-export function appUrl(path = "") {
-  return (process.env.APP_URL || "http://localhost:3000").replace(/\/$/, "") + path;
+/**
+ * Absolute link for emails, texts and redirects.
+ * Uses APP_URL when it's a real address. While testing on a computer (APP_URL is
+ * localhost or unset) it uses the address the page was actually opened with, so
+ * links work from a phone on the same Wi-Fi (e.g. http://192.168.1.20:3000).
+ */
+export async function appUrl(path = "") {
+  const configured = (process.env.APP_URL || "").replace(/\/$/, "");
+  if (configured && !/\/\/(localhost|127\.0\.0\.1)(:|$)/.test(configured)) return configured + path;
+  try {
+    const { headers } = await import("next/headers");
+    const h = await headers();
+    const host = h.get("x-forwarded-host") ?? h.get("host");
+    if (host) {
+      const local = /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(host);
+      const proto = h.get("x-forwarded-proto") ?? (local ? "http" : "https");
+      return `${proto}://${host}${path}`;
+    }
+  } catch {
+    // Not inside a request (e.g. scheduled job): fall back below.
+  }
+  return (configured || "http://localhost:3000") + path;
 }
 
 export function emailLayout(title: string, body: string) {

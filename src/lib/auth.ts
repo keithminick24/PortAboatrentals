@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import bcrypt from "bcryptjs";
 import { prisma } from "./db";
+import { can, type Permission } from "./permissions";
 import { SESSION_COOKIE, SESSION_MAX_AGE, signSession, verifySession, type SessionPayload } from "./session";
 
 export async function getSession(): Promise<SessionPayload | null> {
@@ -15,6 +16,14 @@ export async function requireAdmin(): Promise<SessionPayload> {
   const s = await getSession();
   if (!s) redirect("/admin/login");
   if (s.role === "dock") redirect("/dock");
+  return s;
+}
+
+/** Signed in and allowed to do `perm` (see lib/permissions.ts). */
+export async function requirePermission(perm: Permission): Promise<SessionPayload> {
+  const s = await getSession();
+  if (!s) redirect("/admin/login");
+  if (!can(s.role, perm)) throw new Error("You don't have permission to do that.");
   return s;
 }
 

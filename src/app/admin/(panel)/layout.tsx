@@ -10,7 +10,7 @@ export default async function PanelLayout({ children }: { children: React.ReactN
   const s = await requireAdmin();
   return (
     <div className="min-h-screen bg-slate-50">
-      <AdminNav userName={s.name} logout={logoutAction} />
+      <AdminNav userName={s.name} role={s.role} logout={logoutAction} />
       {isMockPayments() && (
         <div className="bg-amber-100 px-4 py-1.5 text-center text-xs text-amber-900">
           Test payment mode — Stripe isn&apos;t connected, so no real charges are made. Add STRIPE_SECRET_KEY to go live.

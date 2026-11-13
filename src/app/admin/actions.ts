@@ -93,7 +93,7 @@ export async function adminCreateBooking(f: FormData) {
           "Finish your booking",
           `<p>Hi ${full.customer.firstName}, we've reserved <b>${full.boat.name}</b> for ${fmtRange(full.startsAt, full.endsAt)}.</p>
 <p>Please sign the rental agreement and pay to confirm:</p>
-<p><a href="${appUrl(`/b/${full.accessToken}`)}" style="background:#C62828;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none">Sign & pay</a></p>`,
+<p><a href="${await appUrl(`/b/${full.accessToken}`)}" style="background:#C62828;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none">Sign & pay</a></p>`,
         ),
       });
       await logEvent(b.id, "link_sent", "Payment link emailed to customer", s.name);
@@ -207,8 +207,8 @@ export async function sendPaymentLinkAction(f: FormData) {
     html: emailLayout(
       "Your booking",
       `<p>Hi ${b.customer.firstName}, here's the link to view your ${b.boat.name} booking for ${fmtRange(b.startsAt, b.endsAt)}, sign your agreement, and pay any balance:</p>
-<p><a href="${appUrl(`/b/${b.accessToken}`)}" style="background:#C62828;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none">Open booking</a></p>
-<p>Guest waiver link to share with your group: ${appUrl(`/w/${b.waiverToken}`)}</p>`,
+<p><a href="${await appUrl(`/b/${b.accessToken}`)}" style="background:#C62828;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none">Open booking</a></p>
+<p>Guest waiver link to share with your group: ${await appUrl(`/w/${b.waiverToken}`)}</p>`,
     ),
   });
   await logEvent(id, "link_sent", "Booking link emailed to customer", s.name);

@@ -70,3 +70,36 @@ export const ANGLE_LABELS: Record<string, string> = Object.fromEntries([
   ["other", "Other"],
 ]);
 export const DAMAGE_SEVERITIES = ["minor", "moderate", "major"] as const;
+
+/** Expense / cost categories used for gross profit. "cogs" ones count against gross profit per booking. */
+export const COST_CATEGORIES = [
+  { key: "fuel", label: "Fuel", cogs: true },
+  { key: "maintenance", label: "Maintenance & repairs", cogs: true },
+  { key: "boat_lift", label: "Boat lift / slip", cogs: true },
+  { key: "insurance", label: "Boat insurance", cogs: true },
+  { key: "boat_payment", label: "Boat loan / lease", cogs: true },
+  { key: "cleaning", label: "Cleaning & supplies", cogs: true },
+  { key: "crew_labor", label: "Crew labor", cogs: true },
+  { key: "card_fees", label: "Card processing fees", cogs: true },
+  { key: "equipment", label: "Equipment & add-on upkeep", cogs: true },
+  { key: "depreciation", label: "Depreciation", cogs: true },
+  { key: "marketing", label: "Marketing", cogs: false },
+  { key: "software", label: "Software & subscriptions", cogs: false },
+  { key: "office", label: "Office & admin", cogs: false },
+  { key: "rent", label: "Rent & utilities", cogs: false },
+  { key: "other", label: "Other", cogs: false },
+] as const;
+export const COST_LABELS: Record<string, string> = Object.fromEntries(COST_CATEGORIES.map((c) => [c.key, c.label]));
+
+export const INCIDENT_TYPES = [
+  ["injury", "Injury"],
+  ["collision", "Collision"],
+  ["grounding", "Ran aground"],
+  ["property_damage", "Property damage"],
+  ["mechanical", "Mechanical problem"],
+  ["weather", "Weather"],
+  ["medical", "Medical"],
+  ["lost_item", "Lost item / person overboard"],
+  ["complaint", "Complaint"],
+  ["other", "Other"],
+] as const;

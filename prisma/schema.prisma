@@ -20,9 +20,19 @@ model AdminUser {
   email        String   @unique
   name         String
   passwordHash String
-  role         String   @default("staff") // owner | manager | staff | dock
+  // owner (Admin) | manager | accounting | staff (Office) | dock (Crew)
+  role         String   @default("staff")
   active       Boolean  @default(true)
+  phone        String   @default("")
+  // Payroll
+  hourlyRateCents Int   @default(0)
+  gustoEmployeeId String?
+  color        String   @default("#1E6286")
   createdAt    DateTime @default(now())
+  shifts       Shift[]
+  timeEntries  TimeEntry[]
+  timeOff      TimeOffRequest[]
+  bookingCrew  BookingCrew[]
 }
 
 // ---------- Inventory ----------
@@ -52,9 +62,22 @@ model Boat {
   rates          Rate[]
   bookings       Booking[]
   blocks         BoatBlock[]
+  // On-water towing / assistance (TowBoatUS, Sea Tow, local)
+  towCompany      String   @default("")
+  towPhone        String   @default("")
+  towMemberNumber String   @default("")
+  towPlan         String   @default("")
+  towExpiresAt    DateTime?
+  towNotes        String   @default("")
+
   maintenance    MaintenanceLog[]
   schedules      MaintenanceSchedule[]
   damage         DamageReport[]
+  insurance      InsurancePolicy[]
+  costs          BoatCost[]
+  expenses       Expense[]
+  incidents      Incident[]
+  budgets        Budget[]
 }
 
 // A bookable duration and its price, e.g. "Half Day (4 hrs)" $450
@@ -183,10 +206,18 @@ model Customer {
   phone           String
   stripeCustomerId String?
   notes           String   @default("")
+  // CRM
+  tags            String   @default("")   // comma separated, e.g. "vip,local,repeat"
+  marketingOptIn  Boolean  @default(false) // agreed to promotional texts/emails
+  smsOptOut       Boolean  @default(false) // replied STOP
+  emailOptOut     Boolean  @default(false)
+  unsubToken      String?  @unique
+  source          String   @default("")   // how they found us
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   bookings        Booking[]
   messages        Message[]
+  campaignSends   CampaignSend[]
 }
 
 model Booking {
@@ -222,6 +253,8 @@ model Booking {
   // Portion of subtotalCents attributed to included fees (e.g. fuel)
   includedFeesCents Int  @default(0)
   convenienceFeeCents Int @default(0)
+  // Tip chosen at booking (included in totalCents; not taxed, no convenience fee)
+  tipCents      Int      @default(0)
   totalCents    Int
   paidCents     Int      @default(0)
   refundedCents Int      @default(0)
@@ -262,6 +295,11 @@ model Booking {
   fees          BookingFee[]
   damage        DamageReport[]
   messages      Message[]
+  tips          Tip[]
+  crew          BookingCrew[]
+  incidents     Incident[]
+  campaignSends CampaignSend[]
+  phoneOrder    PhoneOrder?
   signatures    Signature[]
   photos        Photo[]
   payments      Payment[]
@@ -450,6 +488,16 @@ model Settings {
   // Automatic texts through Quo
   smsOnConfirm        Boolean @default(true)
   smsReminder         Boolean @default(true)
+  // Tips
+  tipsEnabled         Boolean @default(true)
+  tipPercents         String  @default("15,18,20")
+  // Reviews
+  googlePlaceId       String  @default("")
+  facebookPageId      String  @default("")
+  googleReviewUrl     String  @default("")
+  facebookReviewUrl   String  @default("")
+  // Phone (Quo AI) orders: how long a drafted booking holds the boat
+  phoneHoldHours      Int     @default(24)
   // Free cancellation if cancelled at least this many hours before start
   cancelWindowHours  Int     @default(48)
   // Minutes a pending (unpaid) booking holds the boat
@@ -458,4 +506,332 @@ model Settings {
   weekendDays        String  @default("0,6")
   confirmationNote   String  @default("Please arrive 20 minutes early for your safety briefing. Bring a valid photo ID and the card used to book.")
   updatedAt          DateTime @updatedAt
+}
+
+
+// =====================================================================
+// CRM & marketing
+// =====================================================================
+
+// An automated message flow (pre-arrival, post-trip, win-back…) or a one-off promotion.
+model Campaign {
+  id          String   @id @default(cuid())
+  name        String
+  // automation | broadcast
+  kind        String   @default("automation")
+  // before_trip | after_trip | after_booking | win_back | manual
+  trigger     String   @default("manual")
+  // Hours relative to the trigger (before_trip: hours before start; after_trip: hours after end;
+  // win_back: days since last trip x 24)
+  offsetHours Int      @default(24)
+  // sms | email | both
+  channel     String   @default("sms")
+  subject     String   @default("")
+  // Merge tags: {{firstName}} {{boat}} {{date}} {{time}} {{manageLink}} {{waiverLink}} {{reviewLink}} {{tipLink}} {{bookLink}}
+  body        String
+  // Promotional messages only go to customers who opted in
+  isMarketing Boolean  @default(false)
+  // Simple audience filter as JSON: {"tags":["vip"],"minTrips":1,"lastTripWithinDays":365}
+  segment     String   @default("{}")
+  active      Boolean  @default(true)
+  scheduledAt DateTime?
+  sentAt      DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  sends       CampaignSend[]
+}
+
+model CampaignSend {
+  id         String    @id @default(cuid())
+  campaignId String
+  campaign   Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  customerId String
+  customer   Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  bookingId  String?
+  booking    Booking?  @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  channel    String
+  // sent | failed | skipped
+  status     String
+  error      String?
+  // Dedupe key so an automation never sends twice for the same booking/customer
+  dedupeKey  String    @unique
+  createdAt  DateTime  @default(now())
+}
+
+// =====================================================================
+// Reputation
+// =====================================================================
+
+model Review {
+  id          String   @id @default(cuid())
+  // google | facebook | manual
+  source      String
+  externalId  String?  @unique
+  author      String   @default("")
+  rating      Float?
+  text        String   @default("")
+  url         String   @default("")
+  reviewedAt  DateTime
+  responded   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+}
+
+// Daily snapshot of the overall rating and count, for trend charts
+model ReviewSnapshot {
+  id        String   @id @default(cuid())
+  source    String
+  rating    Float
+  count     Int
+  takenAt   DateTime @default(now())
+
+  @@index([source, takenAt])
+}
+
+// =====================================================================
+// Accounting (expenses from Xero), costs, budgets
+// =====================================================================
+
+// Cost categories (see src/lib/constants.ts COST_CATEGORIES)
+model Expense {
+  id           String   @id @default(cuid())
+  date         DateTime
+  amountCents  Int
+  category     String   @default("other")
+  boatId       String?
+  boat         Boat?    @relation(fields: [boatId], references: [id], onDelete: SetNull)
+  vendor       String   @default("")
+  description  String   @default("")
+  // manual | xero | csv
+  source       String   @default("manual")
+  // Xero line id etc. for idempotent sync
+  externalId   String?  @unique
+  xeroAccountCode String?
+  createdBy    String?
+  createdAt    DateTime @default(now())
+
+  @@index([date])
+}
+
+// Maps a Xero account code (and optional tracking option) to an app category / boat
+model ExpenseMapping {
+  id             String  @id @default(cuid())
+  xeroAccountCode String
+  xeroAccountName String @default("")
+  category       String  @default("other")
+  // When set, every expense on this account is charged to this boat
+  boatId         String?
+  ignore         Boolean @default(false)
+
+  @@unique([xeroAccountCode])
+}
+
+// Single-row Xero OAuth connection (tokens encrypted at rest)
+model XeroConnection {
+  id            Int      @id @default(1)
+  tenantId      String
+  tenantName    String   @default("")
+  accessToken   String
+  refreshToken  String
+  expiresAt     DateTime
+  lastSyncAt    DateTime?
+  lastSyncNote  String   @default("")
+  updatedAt     DateTime @updatedAt
+}
+
+// Cost assumptions used for per-booking profitability and breakeven.
+// boatId null = fleet-wide, split across boats.
+model BoatCost {
+  id          String  @id @default(cuid())
+  boatId      String?
+  boat        Boat?   @relation(fields: [boatId], references: [id], onDelete: Cascade)
+  name        String
+  category    String  @default("other")
+  // monthly | per_trip | per_engine_hour | per_trip_hour | percent_revenue
+  basis       String  @default("monthly")
+  amountCents Int     @default(0)
+  percentBps  Int     @default(0)
+  active      Boolean @default(true)
+  createdAt   DateTime @default(now())
+}
+
+// Monthly targets. boatId null = whole business.
+model Budget {
+  id                 String  @id @default(cuid())
+  month              String  // "2026-06"
+  boatId             String?
+  boat               Boat?   @relation(fields: [boatId], references: [id], onDelete: Cascade)
+  revenueGoalCents   Int     @default(0)
+  tripsGoal          Int     @default(0)
+  expenseBudgetCents Int     @default(0)
+  notes              String  @default("")
+
+  @@unique([month, boatId])
+}
+
+// =====================================================================
+// Crew: scheduling, time clock, tips
+// =====================================================================
+
+model Shift {
+  id        String    @id @default(cuid())
+  userId    String
+  user      AdminUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  startsAt  DateTime
+  endsAt    DateTime
+  // dock | captain | office | cleaning
+  position  String    @default("dock")
+  notes     String    @default("")
+  published Boolean   @default(true)
+  createdAt DateTime  @default(now())
+
+  @@index([startsAt])
+}
+
+model TimeEntry {
+  id        String    @id @default(cuid())
+  userId    String
+  user      AdminUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clockIn   DateTime
+  clockOut  DateTime?
+  notes     String    @default("")
+  editedBy  String?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, clockIn])
+}
+
+model TimeOffRequest {
+  id        String    @id @default(cuid())
+  userId    String
+  user      AdminUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  startDate String    // YYYY-MM-DD
+  endDate   String
+  reason    String    @default("")
+  // pending | approved | denied
+  status    String    @default("pending")
+  decidedBy String?
+  createdAt DateTime  @default(now())
+}
+
+// Crew who worked a trip (tips are split evenly between them)
+model BookingCrew {
+  id        String    @id @default(cuid())
+  bookingId String
+  booking   Booking   @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  userId    String
+  user      AdminUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // check_out | check_in | captain | assigned
+  role      String    @default("assigned")
+  createdAt DateTime  @default(now())
+
+  @@unique([bookingId, userId])
+}
+
+model Tip {
+  id          String   @id @default(cuid())
+  bookingId   String
+  booking     Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  amountCents Int
+  // card | cash | mock
+  method      String   @default("card")
+  // booking | dock | post_trip
+  source      String
+  stripeId    String?
+  createdBy   String?
+  createdAt   DateTime @default(now())
+}
+
+// =====================================================================
+// Incidents, insurance
+// =====================================================================
+
+model Incident {
+  id            String    @id @default(cuid())
+  bookingId     String?
+  booking       Booking?  @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  boatId        String?
+  boat          Boat?     @relation(fields: [boatId], references: [id], onDelete: SetNull)
+  // crew | guest
+  reporterType  String    @default("crew")
+  reporterName  String
+  reporterPhone String    @default("")
+  // injury | collision | grounding | property_damage | mechanical | weather | medical | lost_item | complaint | other
+  type          String    @default("other")
+  // low | medium | high
+  severity      String    @default("low")
+  occurredAt    DateTime
+  location      String    @default("")
+  description   String
+  peopleInvolved String   @default("")
+  witnesses     String    @default("")
+  injuries      Boolean   @default(false)
+  emsCalled     Boolean   @default(false)
+  authoritiesNotified String @default("") // e.g. "USCG, TPWD game warden"
+  actionsTaken  String    @default("")
+  // open | investigating | closed
+  status        String    @default("open")
+  followUp      String    @default("")
+  photos        IncidentPhoto[]
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model IncidentPhoto {
+  id          String   @id @default(cuid())
+  incidentId  String
+  incident    Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  storageKey  String
+  contentType String
+  createdAt   DateTime @default(now())
+}
+
+model InsurancePolicy {
+  id               String   @id @default(cuid())
+  boatId           String
+  boat             Boat     @relation(fields: [boatId], references: [id], onDelete: Cascade)
+  carrier          String
+  policyNumber     String   @default("")
+  // e.g. "Hull & machinery + liability (charter/rental)"
+  coverage         String   @default("")
+  agentName        String   @default("")
+  agentPhone       String   @default("")
+  agentEmail       String   @default("")
+  claimsPhone      String   @default("")
+  hullValueCents   Int?
+  liabilityLimitCents Int?
+  deductibleCents  Int?
+  annualPremiumCents Int?
+  effectiveDate    DateTime?
+  expiresAt        DateTime?
+  notes            String   @default("")
+  // Uploaded policy document / declarations page
+  documentKey      String?
+  documentType     String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+// =====================================================================
+// Phone orders taken by Quo's AI agent (staff approve before the link is sent)
+// =====================================================================
+
+model PhoneOrder {
+  id           String   @id @default(cuid())
+  // Quo call id - one order per call
+  callId       String   @unique
+  phone        String
+  customerName String   @default("")
+  email        String   @default("")
+  transcript   String   @default("")
+  summary      String   @default("")
+  // JSON from the AI: {date, startTime, boatName, rateLabel, partySize, addOns:[{name,quantity}], notes}
+  extracted    String   @default("{}")
+  // needs_review | approved | rejected | failed
+  status       String   @default("needs_review")
+  problem      String   @default("")
+  bookingId    String?  @unique
+  booking      Booking? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  reviewedBy   String?
+  reviewedAt   DateTime?
+  createdAt    DateTime @default(now())
 }
