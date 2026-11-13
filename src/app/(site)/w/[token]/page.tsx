@@ -28,7 +28,7 @@ export default async function PassengerWaiver({ params }: { params: Promise<{ to
         <Notice>No waiver is required. See you on the water!</Notice>
       ) : (
         <>
-          <p className="muted">Each guest 18+ should sign. Parents/guardians sign for minors (one signature per child).</p>
+          <p className="muted">Every guest signs: adults 18+ for themselves, and a parent or legal guardian for each child under 18 (one waiver per child).</p>
           <SignContractForm
             endpoint={`/api/w/${token}/sign`}
             templateId={t.id}

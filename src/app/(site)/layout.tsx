@@ -62,6 +62,8 @@ export default async function SiteLayout({ children }: { children: React.ReactNo
           <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-x-10 gap-y-2 px-4 py-4 text-sm font-semibold">
             <span>© {new Date().getFullYear()} {s.businessName.toUpperCase()} All rights reserved.</span>
             <span className="flex gap-3">
+              <a href="/my-bookings" className="hover:text-teal">My bookings</a>
+              <span className="h-4 w-px self-center bg-white/40" />
               <a href={SITE.footer[6].href} className="hover:text-teal">Privacy Policy</a>
               <span className="h-4 w-px self-center bg-white/40" />
               <a href={SITE.footer[7].href} className="hover:text-teal">Terms of Service</a>

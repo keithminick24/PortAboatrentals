@@ -22,6 +22,12 @@ export default function SignContractForm(props: {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
+  const [copyUrl, setCopyUrl] = useState<string | null>(null);
+  // Passenger waivers: an adult signing for themselves, or a parent/guardian signing for a child
+  const [forChild, setForChild] = useState(false);
+  const [childName, setChildName] = useState("");
+  const [childDob, setChildDob] = useState("");
+  const [relationship, setRelationship] = useState("Parent");
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -38,6 +44,7 @@ export default function SignContractForm(props: {
         signerEmail: email || undefined,
         dateOfBirth: dob || undefined,
         boaterEdNumber: boaterEd || undefined,
+        ...(forChild ? { minorName: childName, minorDob: childDob || undefined, guardianRelationship: relationship } : {}),
         signatureData: sig,
       }),
     });
@@ -48,6 +55,7 @@ export default function SignContractForm(props: {
       return;
     }
     if (props.redirectTo === "stay") {
+      setCopyUrl(data.copyUrl ?? null);
       setDone(true);
       setBusy(false);
       return;
@@ -59,11 +67,16 @@ export default function SignContractForm(props: {
     return (
       <div className="card card-pad text-center">
         <div className="text-4xl">✅</div>
-        <h2 className="h2 mt-2">Thanks, {name.split(" ")[0]}! You&apos;re signed.</h2>
-        <p className="muted mt-1">See you on the water.</p>
-        <button className="btn-secondary mt-4" onClick={() => window.location.reload()}>
-          Sign for another guest
-        </button>
+        <h2 className="h2 mt-2">
+          {forChild ? `Thanks, ${name.split(" ")[0]}! ${childName.split(" ")[0]} is signed.` : `Thanks, ${name.split(" ")[0]}! You're signed.`}
+        </h2>
+        <p className="muted mt-1">{email ? "We emailed you a copy. " : ""}See you on the water.</p>
+        <div className="mt-4 flex flex-wrap justify-center gap-2">
+          {copyUrl && <a className="btn-secondary" href={copyUrl} target="_blank">View / print your copy</a>}
+          <button className="btn-secondary" onClick={() => window.location.reload()}>
+            Sign for another guest or child
+          </button>
+        </div>
       </div>
     );
   }
@@ -74,18 +87,51 @@ export default function SignContractForm(props: {
       <div className="max-h-96 overflow-y-auto whitespace-pre-wrap rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm leading-relaxed">
         {props.body}
       </div>
+      {!props.primary && (
+        <div className="space-y-3 rounded-lg border border-slate-200 p-3">
+          <div className="label mb-0">Who is signing?</div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <label className={`flex cursor-pointer items-center gap-2 rounded-lg border p-3 text-sm ${!forChild ? "border-brand bg-sky-50" : "border-slate-200"}`}>
+              <input type="radio" name="who" checked={!forChild} onChange={() => setForChild(false)} /> Myself (18 or older)
+            </label>
+            <label className={`flex cursor-pointer items-center gap-2 rounded-lg border p-3 text-sm ${forChild ? "border-brand bg-sky-50" : "border-slate-200"}`}>
+              <input type="radio" name="who" checked={forChild} onChange={() => setForChild(true)} /> I&apos;m a parent/guardian signing for a child
+            </label>
+          </div>
+          {forChild && (
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div>
+                <label className="label" htmlFor="childName">Child&apos;s full name</label>
+                <input id="childName" className="input" required value={childName} onChange={(e) => setChildName(e.target.value)} />
+              </div>
+              <div>
+                <label className="label" htmlFor="childDob">Child&apos;s date of birth</label>
+                <input id="childDob" type="date" className="input" required value={childDob} onChange={(e) => setChildDob(e.target.value)} />
+              </div>
+              <div>
+                <label className="label" htmlFor="rel">Your relationship</label>
+                <select id="rel" className="input" value={relationship} onChange={(e) => setRelationship(e.target.value)}>
+                  <option>Parent</option>
+                  <option>Legal guardian</option>
+                </select>
+              </div>
+              <p className="muted sm:col-span-3">One waiver per child. Your own name, date of birth and signature go below. Children must wear a life jacket while the boat is moving.</p>
+            </div>
+          )}
+        </div>
+      )}
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
-          <label className="label" htmlFor="name">Full legal name</label>
+          <label className="label" htmlFor="name">{forChild ? "Your full legal name (parent/guardian)" : "Full legal name"}</label>
           <input id="name" className="input" required value={name} onChange={(e) => setName(e.target.value)} />
         </div>
         <div>
-          <label className="label" htmlFor="dob">Date of birth</label>
+          <label className="label" htmlFor="dob">{forChild ? "Your date of birth" : "Date of birth"}</label>
           <input id="dob" type="date" className="input" required value={dob} onChange={(e) => setDob(e.target.value)} />
         </div>
         {!props.primary && (
           <div>
-            <label className="label" htmlFor="email">Email (optional)</label>
+            <label className="label" htmlFor="email">Email (optional, to get a copy)</label>
             <input id="email" type="email" className="input" value={email} onChange={(e) => setEmail(e.target.value)} />
           </div>
         )}

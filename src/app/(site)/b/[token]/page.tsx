@@ -9,6 +9,7 @@ import { fmtDateTime, fmtRange } from "@/lib/time";
 import { appUrl, emailLayout, sendMail } from "@/lib/mail";
 import { Notice, StatusBadge } from "@/components/ui";
 import ShareWaiver from "@/components/ShareWaiver";
+import { signedCopyUrl } from "@/lib/signatures";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Your booking", robots: { index: false } };
@@ -60,6 +61,8 @@ export default async function BookingPage({
   const missing = await missingPrimarySignatures(b.id);
   const balance = b.totalCents - b.paidCents;
   const passengerSigs = b.signatures.filter((s) => !s.isPrimary);
+  const renterSig = b.signatures.find((s) => s.isPrimary);
+  const renterCopyUrl = renterSig ? await signedCopyUrl(renterSig.id) : null;
   const waiverUrl = await appUrl(`/w/${b.waiverToken}`);
   const cancellable = canCustomerCancel(b, settings.cancelWindowHours);
   const expired = b.status === "pending" && b.holdExpiresAt && b.holdExpiresAt < new Date();
@@ -96,7 +99,10 @@ export default async function BookingPage({
             {missing.length > 0 ? (
               <Link href={`/b/${token}/sign`} className="btn-primary">Review & sign</Link>
             ) : (
-              <span className="muted">Signed by {b.signatures.find((s) => s.isPrimary)?.signerName}</span>
+              <span className="flex flex-wrap items-center gap-2">
+                <span className="muted">Signed by {b.signatures.find((s) => s.isPrimary)?.signerName}</span>
+                {renterCopyUrl && <a className="text-sm text-brand underline" href={renterCopyUrl} target="_blank">View / print signed copy</a>}
+              </span>
             )}
           </Step>
           <Step done={balance <= 0} n={2} title={balance > 0 ? `Pay ${fmtMoney(balance)}` : "Payment"}>
@@ -118,7 +124,7 @@ export default async function BookingPage({
               </p>
               <div className="font-medium">
                 {passengerSigs.length} of {Math.max(0, b.partySize - 1)} guests signed
-                {passengerSigs.length > 0 && <span className="muted font-normal">: {passengerSigs.map((s) => s.signerName).join(", ")}</span>}
+                {passengerSigs.length > 0 && <span className="muted font-normal">: {passengerSigs.map((s) => (s.minorName ? `${s.minorName} (child, signed by ${s.signerName})` : s.signerName)).join(", ")}</span>}
               </div>
               <ShareWaiver url={waiverUrl} boat={b.boat.name} when={fmtRange(b.startsAt, b.endsAt)} />
             </div>

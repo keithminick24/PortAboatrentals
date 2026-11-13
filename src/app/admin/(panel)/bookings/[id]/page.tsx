@@ -17,6 +17,7 @@ import { templates as smsTemplates, toE164 } from "@/lib/messaging";
 import { getSettings } from "@/lib/db";
 import { ANGLE_LABELS } from "@/lib/constants";
 import { resolveFlag } from "@/app/dock/actions";
+import { signedCopyUrl } from "@/lib/signatures";
 import BookingCrewCard from "@/components/crew/BookingCrewCard";
 import BookingIncidents from "@/components/admin/BookingIncidents";
 import {
@@ -75,6 +76,9 @@ export default async function BookingDetail({
       firstName: b.customer.firstName,
     },
     settings.businessName,
+  );
+  const copyUrls: Record<string, string> = Object.fromEntries(
+    await Promise.all(b.signatures.map(async (s) => [s.id, await signedCopyUrl(s.id)] as const)),
   );
   const flagged = b.damage.filter((d) => d.status === "needs_check");
   const loggedDamage = b.damage.filter((d) => d.status === "confirmed" || d.status === "repaired");
@@ -295,7 +299,7 @@ export default async function BookingDetail({
                 <details key={s.id} className="py-2">
                   <summary className="flex cursor-pointer flex-wrap items-center justify-between gap-2 text-sm">
                     <span>
-                      <b>{s.signerName}</b> {s.isPrimary ? <Pill tone="blue">Renter</Pill> : <Pill>Passenger</Pill>} · {s.template.name} v{s.template.version}
+                      <b>{s.minorName ? `${s.minorName}` : s.signerName}</b> {s.isPrimary ? <Pill tone="blue">Renter</Pill> : s.minorName ? <Pill tone="amber">Minor · signed by {s.signerName} ({s.guardianRelationship})</Pill> : <Pill>Passenger</Pill>} · {s.template.name} v{s.template.version}
                     </span>
                     <span className="muted">{fmtDateTime(s.signedAt)}</span>
                   </summary>
@@ -304,12 +308,14 @@ export default async function BookingDetail({
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img src={s.signatureData} alt="Signature" className="h-24 rounded border border-slate-200 bg-white" />
                       <dl className="mt-2 space-y-0.5 text-xs text-slate-600">
-                        {s.dateOfBirth && <div>DOB: {s.dateOfBirth}</div>}
+                        {s.dateOfBirth && <div>{s.minorName ? "Guardian DOB" : "DOB"}: {s.dateOfBirth}</div>}
+                        {s.minorDob && <div>Child DOB: {s.minorDob}</div>}
                         {s.boaterEdNumber && <div>Boater ed #: {s.boaterEdNumber}</div>}
                         {s.signerEmail && <div>Email: {s.signerEmail}</div>}
                         <div>IP: {s.ipAddress ?? "—"}</div>
                         <div className="break-all">Device: {s.userAgent ?? "—"}</div>
                         <div className="break-all font-mono">SHA-256: {s.bodyHash}</div>
+                        <div><a className="text-brand underline" href={copyUrls[s.id]} target="_blank">Open printable copy</a></div>
                       </dl>
                     </div>
                     <div className="max-h-60 overflow-y-auto whitespace-pre-wrap rounded bg-slate-50 p-3 text-xs">{s.bodySnapshot}</div>

@@ -349,6 +349,10 @@ model Signature {
   dateOfBirth  String?
   // Texas requires boater education for operators born on/after 9/1/1993
   boaterEdNumber String?
+  // When a parent/guardian signs on behalf of a minor passenger
+  minorName    String?
+  minorDob     String?
+  guardianRelationship String?
   // PNG data URL of the drawn signature
   signatureData String
   // Exact text the signer agreed to, and its SHA-256 for tamper evidence
