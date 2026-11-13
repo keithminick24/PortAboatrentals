@@ -31,6 +31,7 @@ Online booking, contracts, payments, deposits, and dock operations for Port A Bo
 npm install
 cp .env.example .env        # defaults work for local testing
 npm run setup               # creates the SQLite DB + sample fleet + owner login
+                            # (or `npm run setup:demo` to also add sample bookings)
 npm run dev                 # http://localhost:3000  (admin: /admin)
 ```
 
