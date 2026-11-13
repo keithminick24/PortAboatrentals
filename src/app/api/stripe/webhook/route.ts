@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type Stripe from "stripe";
 import { finalizeCheckoutSession, isMockPayments, stripe } from "@/lib/payments";
+import { finalizeTipCheckout } from "@/lib/tips";
 import { prisma } from "@/lib/db";
 import { logEvent } from "@/lib/bookings";
 
@@ -19,9 +20,13 @@ export async function POST(req: Request) {
 
   switch (event.type) {
     case "checkout.session.completed":
-    case "checkout.session.async_payment_succeeded":
-      await finalizeCheckoutSession((event.data.object as Stripe.Checkout.Session).id);
+    case "checkout.session.async_payment_succeeded": {
+      const session = event.data.object as Stripe.Checkout.Session;
+      // Post-trip tips paid with a new card (safe to call more than once)
+      if (session.metadata?.kind === "tip") await finalizeTipCheckout(session.id);
+      else await finalizeCheckoutSession(session.id);
       break;
+    }
     case "charge.dispute.created": {
       const d = event.data.object as Stripe.Dispute;
       const pi = typeof d.payment_intent === "string" ? d.payment_intent : d.payment_intent?.id;
