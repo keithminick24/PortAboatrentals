@@ -34,9 +34,10 @@ const SIG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCA
         source: i % 3 === 0 ? "phone" : "online", actor: "demo", staffOverride: true,
       });
       if (pay) {
-        // Sample renters have signed the agreement so check-out can be tried right away
+        // Today's sample renters have already signed so the dock check-out can be tried right away.
+        // Later trips are left UNSIGNED so you can walk through the signing page yourself.
         const tpl = await prisma.contractTemplate.findFirst({ where: { required: true, active: true }, orderBy: { version: "desc" } });
-        if (tpl) {
+        if (tpl && d === 0) {
           await prisma.signature.create({
             data: {
               bookingId: b.id, templateId: tpl.id, signerName: `${fn} ${ln}`, signerEmail: `${fn.toLowerCase()}@example.com`,
