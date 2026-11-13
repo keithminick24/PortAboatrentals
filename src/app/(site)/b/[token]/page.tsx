@@ -8,7 +8,7 @@ import { fmtMoney } from "@/lib/money";
 import { fmtDateTime, fmtRange } from "@/lib/time";
 import { appUrl, emailLayout, sendMail } from "@/lib/mail";
 import { Notice, StatusBadge } from "@/components/ui";
-import CopyButton from "@/components/CopyButton";
+import ShareWaiver from "@/components/ShareWaiver";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Your booking", robots: { index: false } };
@@ -112,13 +112,15 @@ export default async function BookingPage({
           </Step>
           <Step done={passengerSigs.length >= b.partySize - 1} n={3} title="Guests sign passenger waivers" optional>
             <div className="space-y-2 text-sm">
-              <div className="muted">
-                {passengerSigs.length} of {Math.max(0, b.partySize - 1)} guests signed. Share this link with your group:
+              <p>
+                Everyone coming on the boat signs their own waiver on their phone. It takes about a minute. Send them this link;
+                parents sign for children.
+              </p>
+              <div className="font-medium">
+                {passengerSigs.length} of {Math.max(0, b.partySize - 1)} guests signed
+                {passengerSigs.length > 0 && <span className="muted font-normal">: {passengerSigs.map((s) => s.signerName).join(", ")}</span>}
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <code className="rounded bg-slate-100 px-2 py-1 text-xs">{waiverUrl}</code>
-                <CopyButton text={waiverUrl} />
-              </div>
+              <ShareWaiver url={waiverUrl} boat={b.boat.name} when={fmtRange(b.startsAt, b.endsAt)} />
             </div>
           </Step>
         </div>
@@ -136,11 +138,17 @@ export default async function BookingPage({
           {b.addOns.map((a) => (
             <FragmentRow key={a.id} label={`${a.addOn.name} × ${a.quantity}`} value={fmtMoney(a.priceCents * a.quantity)} />
           ))}
-          <dt className="muted">Rental</dt>
+          <dt className="muted">Boat rental</dt>
           <dd>{fmtMoney(b.subtotalCents)}</dd>
-          {b.feesCents > 0 && <FragmentRow label="Booking fee" value={fmtMoney(b.feesCents)} />}
+          {b.fees.filter((f) => f.mode === "included").map((f) => (
+            <FragmentRow key={f.id} label={`  includes ${f.name.toLowerCase()}`} value={fmtMoney(f.amountCents)} />
+          ))}
+          {b.fees.filter((f) => f.mode !== "included").map((f) => (
+            <FragmentRow key={f.id} label={f.name} value={fmtMoney(f.amountCents)} />
+          ))}
           <dt className="muted">Tax</dt>
           <dd>{fmtMoney(b.taxCents)}</dd>
+          {b.convenienceFeeCents > 0 && <FragmentRow label="Card convenience fee" value={fmtMoney(b.convenienceFeeCents)} />}
           <dt className="font-semibold">Total</dt>
           <dd className="font-semibold">{fmtMoney(b.totalCents)}</dd>
           {b.refundedCents > 0 && <FragmentRow label="Refunded" value={fmtMoney(b.refundedCents)} />}

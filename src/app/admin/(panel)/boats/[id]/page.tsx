@@ -5,7 +5,9 @@ import { centsToInput, fmtMoney } from "@/lib/money";
 import { fmtDate, fmtDateTime, todayLocal } from "@/lib/time";
 import { PageHeader } from "@/components/ui";
 import FlashMessage from "@/components/FlashMessage";
-import { addBlock, addMaintenance, copyRatesToAllBoats, deleteBlock, saveBoat, saveRate } from "../../../actions";
+import { addBlock, addMaintenance, copyRatesToAllBoats, deleteBlock, saveBoat, saveRate, saveSchedule } from "../../../actions";
+import { dueStatus } from "@/lib/maintenance";
+import { ANGLE_LABELS } from "@/lib/constants";
 
 export default async function BoatEdit({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ msg?: string; err?: string }> }) {
   const { id } = await params;
@@ -18,6 +20,8 @@ export default async function BoatEdit({ params, searchParams }: { params: Promi
         include: {
           rates: { orderBy: [{ sortOrder: "asc" }, { minutes: "asc" }] },
           maintenance: { orderBy: { performedAt: "desc" } },
+          schedules: { orderBy: { name: "asc" } },
+          damage: { where: { status: "confirmed" }, orderBy: { createdAt: "desc" } },
           blocks: { where: { endsAt: { gt: new Date() } }, orderBy: { startsAt: "asc" } },
           _count: { select: { bookings: true } },
         },
@@ -112,23 +116,84 @@ export default async function BoatEdit({ params, searchParams }: { params: Promi
             </div>
 
             <div className="card card-pad space-y-3">
+              <h2 className="h2">Service schedule</h2>
+              <p className="muted text-xs">Due when either the hours or the days run out. Dock crew see these on the dock app and can mark them done.</p>
+              <ul className="divide-y divide-slate-100 text-sm">
+                {boat.schedules.map((sch) => {
+                  const d = dueStatus(sch, boat.engineHours);
+                  return (
+                    <li key={sch.id} className="py-2">
+                      <form action={saveSchedule} className="grid grid-cols-12 items-center gap-2">
+                        <input type="hidden" name="id" value={sch.id} />
+                        <input type="hidden" name="boatId" value={boat.id} />
+                        <input name="name" className="input col-span-12 sm:col-span-5" defaultValue={sch.name} />
+                        <input name="everyHours" type="number" step="1" className="input col-span-4 sm:col-span-2" defaultValue={sch.everyHours ?? ""} placeholder="hrs" title="Every N engine hours" />
+                        <input name="everyDays" type="number" step="1" className="input col-span-4 sm:col-span-2" defaultValue={sch.everyDays ?? ""} placeholder="days" title="Every N days" />
+                        <label className="col-span-2 flex items-center gap-1 text-xs sm:col-span-1"><input type="checkbox" name="active" defaultChecked={sch.active} />On</label>
+                        <button className="btn-secondary btn-sm col-span-2">Save</button>
+                      </form>
+                      <div className={`mt-1 text-xs ${d.state === "due" ? "font-semibold text-rose-700" : d.state === "soon" ? "text-amber-700" : "text-emerald-700"}`}>
+                        {sch.active ? d.label : "Off"}{sch.lastDoneAt ? ` · last done ${fmtDate(sch.lastDoneAt)}${sch.lastDoneHours != null ? ` at ${sch.lastDoneHours} hrs` : ""}` : " · never logged"}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+              <form action={saveSchedule} className="grid grid-cols-12 gap-2 border-t border-slate-100 pt-3">
+                <input type="hidden" name="boatId" value={boat.id} />
+                <input name="name" className="input col-span-12 sm:col-span-6" placeholder="New interval, e.g. Spark plugs" />
+                <input name="everyHours" type="number" className="input col-span-4 sm:col-span-2" placeholder="every hrs" />
+                <input name="everyDays" type="number" className="input col-span-4 sm:col-span-2" placeholder="every days" />
+                <input type="hidden" name="active" value="on" />
+                <button className="btn-secondary btn-sm col-span-4 sm:col-span-2">Add</button>
+              </form>
+            </div>
+
+            <div className="card card-pad space-y-3">
               <h2 className="h2">Maintenance log</h2>
               <form action={addMaintenance} className="grid grid-cols-2 gap-2">
                 <input type="hidden" name="boatId" value={boat.id} />
                 <input name="description" placeholder="Work performed (oil change, impeller, prop swap…)" className="input col-span-2" required />
+                <select name="category" className="input">
+                  <option value="service">Service</option><option value="repair">Repair</option><option value="inspection">Inspection</option><option value="cleaning">Cleaning</option><option value="issue">Issue to fix</option>
+                </select>
+                <select name="scheduleId" className="input" defaultValue="">
+                  <option value="">Not a scheduled item</option>
+                  {boat.schedules.map((sch) => <option key={sch.id} value={sch.id}>Completes: {sch.name}</option>)}
+                </select>
                 <input name="date" type="date" className="input" defaultValue={todayLocal()} />
                 <input name="engineHours" type="number" step="0.1" placeholder="Engine hrs" className="input" defaultValue={boat.engineHours} />
+                <input name="vendor" placeholder="Vendor / who" className="input" />
                 <input name="cost" placeholder="Cost $" className="input" />
-                <button className="btn-secondary btn-sm">Log service</button>
+                <button className="btn-secondary btn-sm col-span-2">Log work</button>
               </form>
               <ul className="divide-y divide-slate-100 text-sm">
                 {boat.maintenance.map((m) => (
                   <li key={m.id} className="py-2">
                     <div className="flex justify-between"><span className="font-medium">{m.description}</span>{m.costCents != null && <span>{fmtMoney(m.costCents)}</span>}</div>
-                    <div className="muted">{fmtDate(m.performedAt)}{m.engineHours != null && ` · ${m.engineHours} hrs`}{m.createdBy && ` · ${m.createdBy}`}</div>
+                    <div className="muted">{m.category} · {fmtDate(m.performedAt)}{m.engineHours != null && ` · ${m.engineHours} hrs`}{m.vendor && ` · ${m.vendor}`}{m.createdBy && ` · ${m.createdBy}`}</div>
                   </li>
                 ))}
               </ul>
+              {boat.maintenance.length > 0 && (
+                <div className="text-right text-sm font-medium">
+                  Total spent: {fmtMoney(boat.maintenance.reduce((t, m) => t + (m.costCents ?? 0), 0))}
+                </div>
+              )}
+            </div>
+
+            <div className="card card-pad space-y-2">
+              <h2 className="h2">Damage on record</h2>
+              {boat.damage.length === 0 ? <p className="muted">None.</p> : (
+                <ul className="divide-y divide-slate-100 text-sm">
+                  {boat.damage.map((d) => (
+                    <li key={d.id} className="py-2">
+                      <div>{ANGLE_LABELS[d.angle] ?? d.angle}{d.location ? `, ${d.location}` : ""}: {d.description}</div>
+                      <div className="muted">{d.severity} · {d.source === "ai" ? "flagged by photo check, confirmed by " + (d.reviewedBy ?? "crew") : d.createdBy} · {fmtDate(d.createdAt)}{d.bookingId && <> · <Link className="text-brand underline" href={`/admin/bookings/${d.bookingId}`}>trip</Link></>}</div>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           </div>
         )}

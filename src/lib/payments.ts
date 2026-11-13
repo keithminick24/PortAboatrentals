@@ -33,8 +33,36 @@ export function stripe(): Stripe {
 async function loadBooking(id: string) {
   return prisma.booking.findUniqueOrThrow({
     where: { id },
-    include: { boat: true, customer: true, rate: true, addOns: { include: { addOn: true } } },
+    include: { boat: true, customer: true, rate: true, addOns: { include: { addOn: true } }, fees: true },
   });
+}
+
+type LoadedBooking = Awaited<ReturnType<typeof loadBooking>>;
+
+/** Itemized Checkout lines for an unpaid booking, so the receipt shows each fee. */
+function checkoutLines(b: LoadedBooking, balance: number) {
+  const line = (name: string, amount: number, description?: string) => ({
+    quantity: 1,
+    price_data: { currency: "usd", unit_amount: amount, product_data: { name, ...(description ? { description } : {}) } },
+  });
+  if (b.paidCents > 0) {
+    return [line(`Balance - ${b.boat.name}`, balance, `${fmtRange(b.startsAt, b.endsAt)} · Booking ${b.code}`)];
+  }
+  const included = b.fees.filter((f) => f.mode === "included");
+  const lines = [
+    line(
+      `${b.boat.name} - ${b.rate?.label ?? "Boat rental"}`,
+      b.subtotalCents,
+      [`${fmtRange(b.startsAt, b.endsAt)} · Booking ${b.code}`, ...included.map((f) => `includes ${f.name.toLowerCase()} $${(f.amountCents / 100).toFixed(2)}`)].join(" · "),
+    ),
+    ...b.addOns.map((a) => ({ ...line(a.addOn.name, a.priceCents), quantity: a.quantity })),
+    ...b.fees.filter((f) => f.mode !== "included").map((f) => line(f.name, f.amountCents)),
+  ];
+  if (b.taxCents > 0) lines.push(line("Sales tax", b.taxCents));
+  if (b.convenienceFeeCents > 0) lines.push(line("Card convenience fee", b.convenienceFeeCents));
+  const sum = lines.reduce((s, l) => s + l.price_data.unit_amount * l.quantity, 0);
+  // Safety net: if anything doesn't add up, fall back to one line for the exact balance.
+  return sum === balance ? lines : [line(`${b.boat.name} - ${b.rate?.label ?? "Boat rental"}`, balance, `Booking ${b.code}`)];
 }
 
 async function ensureStripeCustomer(customerId: string): Promise<string> {
@@ -62,19 +90,7 @@ export async function createCheckout(bookingId: string): Promise<string> {
   const session = await stripe().checkout.sessions.create({
     mode: "payment",
     customer,
-    line_items: [
-      {
-        quantity: 1,
-        price_data: {
-          currency: "usd",
-          unit_amount: balance,
-          product_data: {
-            name: `${b.boat.name} – ${b.rate?.label ?? "Boat rental"}`,
-            description: `${fmtRange(b.startsAt, b.endsAt)} · Booking ${b.code} (incl. add-ons & tax)`,
-          },
-        },
-      },
-    ],
+    line_items: checkoutLines(b, balance),
     payment_intent_data: {
       setup_future_usage: "off_session",
       description: `Boat rental ${b.code}`,

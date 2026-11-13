@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { computeQuote, type FeeDef, type Quote } from "@/lib/pricing";
 
 type Rate = { id: string; label: string; minutes: number; priceCents: number; startTimes: string[] };
 type Boat = {
@@ -39,7 +40,8 @@ export default function BookingWizard(props: {
   initialBoatId?: string;
   addOns: AddOn[];
   taxRateBps: number;
-  feeRateBps: number;
+  fees: FeeDef[];
+  convenience: { bps: number; cents: number; label: string } | null;
   embedded?: boolean;
 }) {
   const [date, setDate] = useState(props.initialDate && props.initialDate >= props.minDate ? props.initialDate : props.minDate);
@@ -79,11 +81,15 @@ export default function BookingWizard(props: {
 
   const quote = useMemo(() => {
     if (!selRate) return null;
-    const addOnsCents = props.addOns.reduce((s, a) => s + a.priceCents * (addOnQty[a.id] ?? 0), 0);
-    const tax = Math.round(((selRate.priceCents + addOnsCents) * props.taxRateBps) / 10000);
-    const fee = Math.round((selRate.priceCents * props.feeRateBps) / 10000);
-    return { rental: selRate.priceCents, addOnsCents, tax, fee, total: selRate.priceCents + addOnsCents + tax + fee };
-  }, [selRate, addOnQty, props.addOns, props.taxRateBps, props.feeRateBps]);
+    return computeQuote({
+      rentalCents: selRate.priceCents,
+      minutes: selRate.minutes,
+      addOns: props.addOns.map((a) => ({ priceCents: a.priceCents, quantity: addOnQty[a.id] ?? 0 })),
+      fees: props.fees,
+      taxRateBps: props.taxRateBps,
+      convenience: props.convenience,
+    });
+  }, [selRate, addOnQty, props.addOns, props.taxRateBps, props.fees, props.convenience]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -246,7 +252,7 @@ export default function BookingWizard(props: {
                   </div>
                 </div>
               ))}
-              <Summary boat={selBoat} rate={selRate} time={sel.time} date={date} quote={quote!} />
+              <Summary boat={selBoat} rate={selRate} time={sel.time} date={date} quote={quote!} convenienceLabel={props.convenience?.label ?? ""} />
               <button className="btn-primary w-full py-3 text-base" onClick={() => setStep("details")}>
                 Continue
               </button>
@@ -263,7 +269,7 @@ export default function BookingWizard(props: {
               Change selection
             </button>
           </div>
-          <Summary boat={selBoat} rate={selRate} time={sel.time} date={date} quote={quote} />
+          <Summary boat={selBoat} rate={selRate} time={sel.time} date={date} quote={quote} convenienceLabel={props.convenience?.label ?? ""} />
           <div className="grid gap-4 sm:grid-cols-2">
             {(
               [
@@ -311,12 +317,14 @@ function Summary({
   time,
   date,
   quote,
+  convenienceLabel,
 }: {
   boat: Boat;
   rate: Rate;
   time: string;
   date: string;
-  quote: { rental: number; addOnsCents: number; tax: number; fee: number; total: number };
+  quote: Quote;
+  convenienceLabel: string;
 }) {
   return (
     <div className="rounded-lg bg-slate-50 p-4 text-sm">
@@ -325,11 +333,19 @@ function Summary({
         {fmtDate(date)} · {fmtTime(time)} – {fmtTime(addMinutes(time, rate.minutes))}
       </div>
       <dl className="mt-3 space-y-1">
-        <div className="flex justify-between"><dt>Rental</dt><dd>{money(quote.rental)}</dd></div>
+        <div className="flex justify-between"><dt>Boat rental</dt><dd>{money(quote.subtotalCents)}</dd></div>
+        {quote.feeLines.filter((l) => l.mode === "included").map((l) => (
+          <div key={l.feeId} className="flex justify-between pl-3 text-xs text-slate-500"><dt>Includes {l.name.toLowerCase()}</dt><dd>{money(l.amountCents)}</dd></div>
+        ))}
         {quote.addOnsCents > 0 && <div className="flex justify-between"><dt>Extras</dt><dd>{money(quote.addOnsCents)}</dd></div>}
-        {quote.fee > 0 && <div className="flex justify-between"><dt>Booking fee</dt><dd>{money(quote.fee)}</dd></div>}
-        <div className="flex justify-between"><dt>Tax</dt><dd>{money(quote.tax)}</dd></div>
-        <div className="flex justify-between border-t border-slate-200 pt-1 font-semibold"><dt>Total due today</dt><dd>{money(quote.total)}</dd></div>
+        {quote.feeLines.filter((l) => l.mode !== "included").map((l) => (
+          <div key={l.feeId} className="flex justify-between"><dt>{l.name}</dt><dd>{money(l.amountCents)}</dd></div>
+        ))}
+        <div className="flex justify-between"><dt>Tax</dt><dd>{money(quote.taxCents)}</dd></div>
+        {quote.convenienceFeeCents > 0 && (
+          <div className="flex justify-between"><dt>{convenienceLabel}</dt><dd>{money(quote.convenienceFeeCents)}</dd></div>
+        )}
+        <div className="flex justify-between border-t border-slate-200 pt-1 font-semibold"><dt>Total due today</dt><dd>{money(quote.totalCents)}</dd></div>
       </dl>
     </div>
   );

@@ -2,6 +2,8 @@ import { getSettings, prisma } from "@/lib/db";
 import { requireAdmin } from "@/lib/auth";
 import { appUrl } from "@/lib/mail";
 import { isMockPayments } from "@/lib/payments";
+import { isQuoEnabled } from "@/lib/messaging";
+import { isDamageReviewEnabled } from "@/lib/damageReview";
 import { Notice, PageHeader, Pill } from "@/components/ui";
 import FlashMessage from "@/components/FlashMessage";
 import CopyButton from "@/components/CopyButton";
@@ -29,6 +31,8 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         <div>Payments: {isMockPayments() ? <Pill tone="amber">Test mode (no Stripe key)</Pill> : <Pill tone="green">Stripe live</Pill>}</div>
         <div>Email: {process.env.SMTP_HOST ? <Pill tone="green">SMTP configured</Pill> : <Pill tone="amber">Logging to console only</Pill>}</div>
         <div>Photo storage: <Pill>{process.env.STORAGE_DRIVER || "local"}</Pill></div>
+        <div>Texting: {isQuoEnabled() ? <Pill tone="green">Quo connected</Pill> : <Pill tone="amber">Test mode (texts saved, not sent)</Pill>} <span className="muted">Webhook URL for Quo: {appUrl("/api/quo/webhook")}</span></div>
+        <div>Photo damage check: {isDamageReviewEnabled() ? <Pill tone="green">On</Pill> : <Pill tone="amber">Off (add ANTHROPIC_API_KEY)</Pill>}</div>
         <div className="pt-2">
           <div className="font-medium">Embed on WordPress</div>
           <p className="muted">Paste into a Custom HTML block on portaboatrentals.com, or just link your &quot;Book Now&quot; buttons to {appUrl("/book")}.</p>
@@ -60,9 +64,9 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
             <div><label className="label">Free cancel up to (hrs before)</label><input name="cancelWindowHours" type="number" className="input" defaultValue={s.cancelWindowHours} /></div>
           </div>
           <h2 className="h2">Pricing</h2>
+          <p className="muted text-sm">Mandatory fees (damage waiver, fuel…) are set up under <a className="text-brand underline" href="/admin/fees">Fees</a>.</p>
           <div className="grid gap-3 sm:grid-cols-3">
             <div><label className="label">Sales tax %</label><input name="taxRate" type="number" step="0.001" className="input" defaultValue={s.taxRateBps / 100} /></div>
-            <div><label className="label">Booking fee % (of rental)</label><input name="feeRate" type="number" step="0.01" className="input" defaultValue={s.feeRateBps / 100} /></div>
             <div>
               <span className="label">Weekend pricing days</span>
               <div className="flex flex-wrap gap-2 text-sm">
@@ -71,6 +75,22 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
                 ))}
               </div>
             </div>
+          </div>
+          <h2 className="h2">Texting (Quo)</h2>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="smsOnConfirm" defaultChecked={s.smsOnConfirm} /> Text guests when a booking is confirmed (with waiver link)</label>
+            <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="smsReminder" defaultChecked={s.smsReminder} /> Text a reminder the day before</label>
+            <div><label className="label">Damage alert phone</label><input name="damageAlertPhone" className="input" defaultValue={s.damageAlertPhone} placeholder="Dock lead's cell" /></div>
+          </div>
+          <h2 className="h2">Card convenience fee</h2>
+          <p className="muted text-sm">
+            Added when the guest pays online by card (not for cash or staff-recorded payments). Set both to 0 to turn off.
+            Card network rules cap card surcharges at 3%, don&apos;t allow them on debit cards, and require notifying Visa and Mastercard 30 days before you start. Check with your Stripe account rep.
+          </p>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div><label className="label">Percent of total</label><input name="convenienceFeePct" type="number" step="0.01" min="0" className="input" defaultValue={s.convenienceFeeBps / 100} /></div>
+            <div><label className="label">Plus flat ($)</label><input name="convenienceFeeFlat" type="number" step="0.01" min="0" className="input" defaultValue={(s.convenienceFeeCents / 100).toFixed(2)} /></div>
+            <div><label className="label">Label on receipt</label><input name="convenienceFeeLabel" className="input" defaultValue={s.convenienceFeeLabel} /></div>
           </div>
           <div><label className="label">Confirmation note (shown on confirmation & email)</label><textarea name="confirmationNote" rows={2} className="input" defaultValue={s.confirmationNote} /></div>
           <button className="btn-primary">Save settings</button>
@@ -88,7 +108,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
               <div className="col-span-6 sm:col-span-3"><label className="label text-xs">Email</label><input name="email" type="email" className="input" defaultValue={u?.email} required /></div>
               <div className="col-span-5 sm:col-span-2">
                 <label className="label text-xs">Role</label>
-                <select name="role" className="input" defaultValue={u?.role ?? "staff"}><option value="owner">Owner</option><option value="manager">Manager</option><option value="staff">Staff</option></select>
+                <select name="role" className="input" defaultValue={u?.role ?? "staff"}><option value="owner">Owner</option><option value="manager">Manager</option><option value="staff">Staff</option><option value="dock">Dock crew</option></select>
               </div>
               <div className="col-span-7 sm:col-span-2"><label className="label text-xs">{u ? "New password" : "Password"}</label><input name="password" type="password" className="input" placeholder={u ? "unchanged" : "8+ chars"} /></div>
               <div className="col-span-12 flex items-center gap-2 sm:col-span-2">

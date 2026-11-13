@@ -10,9 +10,18 @@ export async function getSession(): Promise<SessionPayload | null> {
   return verifySession(jar.get(SESSION_COOKIE)?.value);
 }
 
+/** Office staff (owner, manager, staff). Dock crew are sent to the dock app. */
 export async function requireAdmin(): Promise<SessionPayload> {
   const s = await getSession();
   if (!s) redirect("/admin/login");
+  if (s.role === "dock") redirect("/dock");
+  return s;
+}
+
+/** Anyone signed in, including dock crew. */
+export async function requireStaff(): Promise<SessionPayload> {
+  const s = await getSession();
+  if (!s) redirect("/dock/login");
   return s;
 }
 

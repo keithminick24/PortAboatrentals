@@ -3,7 +3,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma, getSettings } from "./db";
 import { ACTIVE_STATUSES } from "./constants";
 import { availableStartTimes, isFree, peakUsage, type Interval } from "./availability";
-import { computeQuote, isWeekendDay } from "./pricing";
+import { computeQuote, isWeekendDay, type FeeDef } from "./pricing";
 import { addDays, fmtRange, localDate, weekdayOf, zonedToUtc } from "./time";
 import { bookingCode, secureToken } from "./ids";
 import { appUrl, emailLayout, sendMail } from "./mail";
@@ -130,7 +130,27 @@ export type CreateBookingInput = {
   actor?: string;
   /** Staff can override min-notice / opening hours. Overlap checks always apply. */
   staffOverride?: boolean;
+  /** Card convenience fee applies unless false (e.g. staff bookings paid in cash). */
+  convenienceFee?: boolean;
 };
+
+/** Active mandatory fees in the shape the pricing engine expects. */
+export async function activeFees(): Promise<FeeDef[]> {
+  const fees = await prisma.fee.findMany({ where: { active: true }, include: { tiers: true }, orderBy: { sortOrder: "asc" } });
+  return fees.map((f) => ({
+    id: f.id,
+    name: f.name,
+    mode: f.mode,
+    calc: f.calc,
+    percentBps: f.percentBps,
+    taxable: f.taxable,
+    tiers: f.tiers.map((t) => ({ minMinutes: t.minMinutes, amountCents: t.amountCents })),
+  }));
+}
+
+export function convenienceSettings(s: { convenienceFeeBps: number; convenienceFeeCents: number }) {
+  return s.convenienceFeeBps > 0 || s.convenienceFeeCents > 0 ? { bps: s.convenienceFeeBps, cents: s.convenienceFeeCents } : null;
+}
 
 export class BookingError extends Error {}
 
@@ -165,12 +185,15 @@ export async function createBooking(input: CreateBookingInput) {
       return { def, quantity: Math.min(a.quantity, def.quantity) };
     });
 
-  const quote = computeQuote({
-    rate,
-    isWeekend: isWeekendDay(weekdayOf(input.date), settings.weekendDays),
+  const isWeekend = isWeekendDay(weekdayOf(input.date), settings.weekendDays);
+  const fees = await activeFees();
+  const { feeLines, ...quote } = computeQuote({
+    rentalCents: isWeekend && rate.weekendPriceCents != null ? rate.weekendPriceCents : rate.priceCents,
+    minutes: rate.minutes,
     addOns: chosen.map((c) => ({ priceCents: c.def.priceCents, quantity: c.quantity })),
+    fees,
     taxRateBps: settings.taxRateBps,
-    feeRateBps: settings.feeRateBps,
+    convenience: input.convenienceFee === false ? null : convenienceSettings(settings),
   });
 
   const email = input.customer.email.toLowerCase().trim();
@@ -254,7 +277,16 @@ export async function createBooking(input: CreateBookingInput) {
             ? new Date(now.getTime() + settings.holdMinutes * 60000)
             : null,
         source: input.source ?? "online",
-        ...quote,
+        subtotalCents: quote.subtotalCents,
+        addOnsCents: quote.addOnsCents,
+        feesCents: quote.feesCents,
+        includedFeesCents: quote.includedCents,
+        taxCents: quote.taxCents,
+        convenienceFeeCents: quote.convenienceFeeCents,
+        totalCents: quote.totalCents,
+        fees: {
+          create: feeLines.map((l) => ({ feeId: l.feeId, name: l.name, mode: l.mode, amountCents: l.amountCents, taxable: l.taxable })),
+        },
         depositCents: rate.boat.depositCents,
         customerNotes: input.customerNotes?.slice(0, 2000) ?? "",
         addOns: {
@@ -287,6 +319,8 @@ export async function bookingWithAll(where: Prisma.BookingWhereUniqueInput) {
       rate: true,
       customer: true,
       addOns: { include: { addOn: true } },
+      fees: true,
+      damage: { orderBy: { createdAt: "asc" } },
       signatures: { include: { template: true }, orderBy: { signedAt: "asc" } },
       photos: { orderBy: { createdAt: "asc" } },
       payments: { orderBy: { createdAt: "asc" } },
@@ -330,10 +364,20 @@ export async function onBookingConfirmed(bookingId: string) {
 <p><b>${b.boat.name}</b> – ${b.rate?.label ?? ""}<br>${fmtRange(b.startsAt, b.endsAt)}<br>Confirmation: <b>${b.code}</b><br>Total paid: ${fmtMoney(b.paidCents)}</p>
 <p>A refundable security deposit of <b>${fmtMoney(b.depositCents)}</b> will be authorized on your card shortly before your trip and released after the boat is returned in good condition.</p>
 <p>${settings.confirmationNote}</p>
-<p><a href="${link}" style="background:#1E6286;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none">View your booking</a></p>
+<p><a href="${link}" style="background:#C62828;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none">View your booking</a></p>
 <p>Bringing guests? Forward them this link so each can sign the passenger waiver ahead of time:<br><a href="${waiver}">${waiver}</a></p>`,
     ),
   });
+  if (settings.smsOnConfirm) {
+    const { sendText } = await import("./messaging");
+    await sendText({
+      to: b.customer.phone,
+      customerId: b.customerId,
+      bookingId: b.id,
+      sentBy: "Auto",
+      body: `${settings.businessName}: you're booked! ${b.boat.name}, ${fmtRange(b.startsAt, b.endsAt)} (#${b.code}). Every guest needs to sign the waiver before the trip, so please forward them this link: ${waiver}  Reply to this text anytime with questions.`,
+    });
+  }
   const staff = process.env.STAFF_NOTIFY_EMAIL;
   if (staff) {
     await sendMail({

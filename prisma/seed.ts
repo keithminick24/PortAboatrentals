@@ -78,10 +78,18 @@ async function main() {
           depositCents: 50000,
           description:
             "Smooth-riding tritoon with full Bimini shade, comfortable lounge seating, swim ladder, and Bluetooth sound. Perfect for cruising the bay, sandbar hangs, and dockside lunches.",
+          schedules: {
+            create: [
+              { name: "Engine oil & filter", everyHours: 100, everyDays: 365 },
+              { name: "Lower unit gear oil", everyHours: 100, everyDays: 365 },
+              { name: "Water pump impeller", everyHours: 300, everyDays: 730 },
+              { name: "Safety gear check (PFDs, fire extinguisher, throwable, flares)", everyDays: 30 },
+            ],
+          },
           rates: {
             create: [
               { label: "Half Day (4 hrs)", minutes: 240, priceCents: 45000, weekendPriceCents: 50000, sortOrder: 1 },
-              { label: "Full Day (8 hrs)", minutes: 480, priceCents: 75000, weekendPriceCents: 82500, sortOrder: 2 },
+              { label: "Full Day (9 hrs)", minutes: 540, priceCents: 75000, weekendPriceCents: 82500, sortOrder: 2 },
               { label: "Sunset Cruise (2 hrs)", minutes: 120, priceCents: 27500, sortOrder: 3 },
             ],
           },
@@ -99,6 +107,31 @@ async function main() {
         { name: "Cooler with ice", priceCents: 2500, quantity: 10, sortOrder: 3, description: "Large cooler, iced and ready." },
       ],
     });
+  }
+
+  if ((await prisma.fee.count()) === 0) {
+    await prisma.fee.create({
+      data: {
+        name: "Damage Waiver",
+        description: "Mandatory. Covers accidental damage up to the waiver limit; see rental agreement.",
+        mode: "added",
+        calc: "flat",
+        sortOrder: 1,
+        tiers: { create: [{ minMinutes: 0, amountCents: 5000 }, { minMinutes: 300, amountCents: 10000 }] },
+      },
+    });
+    await prisma.fee.create({
+      data: {
+        name: "Fuel",
+        description: "Fuel for your trip is included in the boat price.",
+        mode: "included",
+        calc: "flat",
+        sortOrder: 2,
+        // Placeholder amounts - set your real fuel portion in Admin → Fees
+        tiers: { create: [{ minMinutes: 0, amountCents: 4000 }, { minMinutes: 300, amountCents: 7500 }] },
+      },
+    });
+    console.log("Created Damage Waiver and Fuel fees (edit in Admin → Fees)");
   }
 
   if ((await prisma.contractTemplate.count()) === 0) {

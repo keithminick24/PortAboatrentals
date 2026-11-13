@@ -77,19 +77,41 @@ describe("availability", () => {
 });
 
 describe("pricing", () => {
-  it("applies weekend price, add-ons, tax and fee", () => {
+  const waiver = {
+    id: "dw", name: "Damage Waiver", mode: "added", calc: "flat", percentBps: 0, taxable: false,
+    tiers: [{ minMinutes: 0, amountCents: 5000 }, { minMinutes: 300, amountCents: 10000 }],
+  };
+  const fuel = {
+    id: "fuel", name: "Fuel", mode: "included", calc: "flat", percentBps: 0, taxable: false,
+    tiers: [{ minMinutes: 0, amountCents: 4000 }, { minMinutes: 300, amountCents: 8000 }],
+  };
+  it("4-hour trip: damage waiver $50, fuel included, tax, convenience fee", () => {
     const q = computeQuote({
-      rate: { priceCents: 45000, weekendPriceCents: 50000 },
-      isWeekend: true,
+      rentalCents: 45000,
+      minutes: 240,
       addOns: [{ priceCents: 4000, quantity: 2 }],
+      fees: [waiver, fuel],
       taxRateBps: 825,
-      feeRateBps: 300,
+      convenience: { bps: 290, cents: 30 },
     });
-    expect(q.subtotalCents).toBe(50000);
-    expect(q.addOnsCents).toBe(8000);
-    expect(q.taxCents).toBe(4785);
-    expect(q.feesCents).toBe(1500);
-    expect(q.totalCents).toBe(64285);
+    expect(q.feesCents).toBe(5000);
+    expect(q.includedCents).toBe(4000);
+    expect(q.taxCents).toBe(4373); // 8.25% of rental + extras (waiver not taxable)
+    expect(q.convenienceFeeCents).toBe(1839); // 2.9% of $623.73 + $0.30
+    expect(q.totalCents).toBe(45000 + 8000 + 5000 + 4373 + 1839);
+  });
+  it("9-hour trip uses the $100 waiver tier; no convenience fee when off", () => {
+    const q = computeQuote({ rentalCents: 75000, minutes: 540, addOns: [], fees: [waiver, fuel], taxRateBps: 0, convenience: null });
+    expect(q.feesCents).toBe(10000);
+    expect(q.includedCents).toBe(8000);
+    expect(q.convenienceFeeCents).toBe(0);
+    expect(q.totalCents).toBe(85000);
+  });
+  it("percent fees and taxable fees", () => {
+    const pct = { ...waiver, calc: "percent", percentBps: 1000, taxable: true, tiers: [] };
+    const q = computeQuote({ rentalCents: 40000, minutes: 240, addOns: [], fees: [pct], taxRateBps: 1000, convenience: null });
+    expect(q.feesCents).toBe(4000);
+    expect(q.taxCents).toBe(4400);
   });
   it("weekend days", () => {
     expect(isWeekendDay(6, "0,6")).toBe(true);
@@ -99,5 +121,19 @@ describe("pricing", () => {
   it("parses money", () => {
     expect(parseMoney("$1,234.5")).toBe(123450);
     expect(parseMoney("abc")).toBeNull();
+  });
+});
+
+import { dueStatus } from "./maintenance";
+describe("maintenance intervals", () => {
+  const base = { everyHours: 100, everyDays: 365, lastDoneHours: 200, lastDoneAt: new Date("2026-01-01T00:00:00Z"), createdAt: new Date("2025-01-01T00:00:00Z") };
+  it("ok, soon, due by hours", () => {
+    const now = new Date("2026-03-01T00:00:00Z");
+    expect(dueStatus(base, 250, now).state).toBe("ok");
+    expect(dueStatus(base, 295, now).state).toBe("soon");
+    expect(dueStatus(base, 301, now).state).toBe("due");
+  });
+  it("due by days even with low hours", () => {
+    expect(dueStatus(base, 210, new Date("2027-01-05T00:00:00Z")).state).toBe("due");
   });
 });

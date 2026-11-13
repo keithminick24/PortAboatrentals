@@ -52,3 +52,21 @@ export const FUEL_LEVELS = ["Full", "7/8", "3/4", "5/8", "1/2", "3/8", "1/4", "1
 
 /** Statuses that occupy a boat's time on the calendar. */
 export const ACTIVE_STATUSES = ["pending", "confirmed", "checked_out", "returned", "completed"];
+
+/** Guided photo positions for dock check-out / check-in. Order = shot order on the dock. */
+export const PHOTO_ANGLES = [
+  { key: "bow", label: "Bow (front)", hint: "Stand on the dock, whole front of the boat" },
+  { key: "port", label: "Port side (left)", hint: "Full left side, hull and pontoons" },
+  { key: "starboard", label: "Starboard side (right)", hint: "Full right side, hull and pontoons" },
+  { key: "stern", label: "Stern (back)", hint: "Back deck, swim ladder, motor from behind" },
+  { key: "helm", label: "Helm / console", hint: "Steering, gauges, screen, switches" },
+  { key: "seating", label: "Seating & deck", hint: "Upholstery, carpet, Bimini top" },
+  { key: "engine", label: "Engine cowling", hint: "Motor cover close up" },
+  { key: "prop", label: "Propeller", hint: "Tilt motor up, prop blades and skeg" },
+] as const;
+export type PhotoAngle = (typeof PHOTO_ANGLES)[number]["key"] | "other";
+export const ANGLE_LABELS: Record<string, string> = Object.fromEntries([
+  ...PHOTO_ANGLES.map((a) => [a.key, a.label]),
+  ["other", "Other"],
+]);
+export const DAMAGE_SEVERITIES = ["minor", "moderate", "major"] as const;

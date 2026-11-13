@@ -11,6 +11,12 @@ import { Notice, Pill, StatusBadge } from "@/components/ui";
 import FlashMessage from "@/components/FlashMessage";
 import PhotoUploader from "@/components/PhotoUploader";
 import CopyButton from "@/components/CopyButton";
+import Thread from "@/components/messages/Thread";
+import ReplyBox from "@/components/messages/ReplyBox";
+import { templates as smsTemplates, toE164 } from "@/lib/messaging";
+import { getSettings } from "@/lib/db";
+import { ANGLE_LABELS } from "@/lib/constants";
+import { resolveFlag } from "@/app/dock/actions";
 import {
   cancelBookingAction,
   captureDepositAction,
@@ -27,6 +33,7 @@ import {
   saveBookingNotes,
   sendPaymentLinkAction,
   updateBookingStatus,
+  sendMessageAction,
 } from "../../../actions";
 
 export default async function BookingDetail({
@@ -51,6 +58,24 @@ export default async function BookingDetail({
   const canCheckOut = ["confirmed", "pending"].includes(b.status);
   const canCheckIn = b.status === "checked_out";
   const hidden = <input type="hidden" name="id" value={b.id} />;
+  const guestPhone = toE164(b.customer.phone);
+  const texts = guestPhone
+    ? (await prisma.message.findMany({ where: { phone: guestPhone }, orderBy: { createdAt: "desc" }, take: 20 })).reverse()
+    : [];
+  const settings = await getSettings();
+  const tpl = smsTemplates(
+    {
+      code: b.code,
+      boatName: b.boat.name,
+      when: fmtRange(b.startsAt, b.endsAt),
+      manageUrl: appUrl(`/b/${b.accessToken}`),
+      waiverUrl: appUrl(`/w/${b.waiverToken}`),
+      firstName: b.customer.firstName,
+    },
+    settings.businessName,
+  );
+  const flagged = b.damage.filter((d) => d.status === "needs_check");
+  const loggedDamage = b.damage.filter((d) => d.status === "confirmed" || d.status === "repaired");
 
   const checkoutBlocker = !allSigned
     ? "Renter must sign the rental agreement first."
@@ -208,7 +233,9 @@ export default async function BookingDetail({
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img src={`/api/admin/photos/${p.id}`} alt={`${phase} photo`} className="aspect-square w-full rounded-lg object-cover" loading="lazy" />
                         </a>
-                        <div className="mt-0.5 text-[10px] text-slate-500">{fmtDateTime(p.createdAt)} · {p.uploadedBy}</div>
+                        <div className="mt-0.5 text-[10px] text-slate-500">{p.angle !== "other" ? `${ANGLE_LABELS[p.angle]} · ` : ""}{fmtDateTime(p.createdAt)} · {p.uploadedBy}</div>
+                        {p.aiStatus === "pending" && <div className="text-[10px] text-sky-700">Checking for damage…</div>}
+                        {p.aiStatus === "done" && p.aiSummary && <div className="text-[10px] text-slate-600" title={p.aiSummary}>🔎 {p.aiSummary.slice(0, 80)}{p.aiSummary.length > 80 ? "…" : ""}</div>}
                         <form action={deletePhotoAction} className="absolute right-1 top-1 hidden group-hover:block">
                           <input type="hidden" name="photoId" value={p.id} />
                           <button className="rounded bg-white/90 px-1.5 text-xs text-rose-600 shadow" title="Delete photo">✕</button>
@@ -221,6 +248,33 @@ export default async function BookingDetail({
             )}
             {b.photos.length === 0 && <p className="muted">No photos yet.</p>}
           </div>
+
+          {/* Damage */}
+          {(flagged.length > 0 || loggedDamage.length > 0) && (
+            <div className="card card-pad space-y-3">
+              <h2 className="h2">Damage ({loggedDamage.length} logged{flagged.length ? `, ${flagged.length} to check` : ""})</h2>
+              {flagged.map((d) => (
+                <div key={d.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-sm">
+                  <div>
+                    <b>⚠ {ANGLE_LABELS[d.angle]}: {d.location}</b> – {d.description}
+                    <span className="muted"> ({d.phase === "after" ? "possible new" : "existing"}, {d.severity}{d.confidence != null ? `, ${Math.round(d.confidence * 100)}%` : ""})</span>
+                  </div>
+                  <div className="flex gap-1">
+                    <form action={resolveFlag}><input type="hidden" name="id" value={d.id} /><input type="hidden" name="decision" value="confirm" /><input type="hidden" name="returnTo" value={`/admin/bookings/${b.id}`} /><button className="btn-secondary btn-sm">Confirm</button></form>
+                    <form action={resolveFlag}><input type="hidden" name="id" value={d.id} /><input type="hidden" name="decision" value="dismiss" /><input type="hidden" name="returnTo" value={`/admin/bookings/${b.id}`} /><button className="btn-secondary btn-sm">Dismiss</button></form>
+                  </div>
+                </div>
+              ))}
+              <ul className="space-y-1 text-sm">
+                {loggedDamage.map((d) => (
+                  <li key={d.id}>
+                    <Pill tone={d.phase === "after" ? "red" : "slate"}>{d.phase === "after" ? "New this trip" : "Existing at check-out"}</Pill>{" "}
+                    {ANGLE_LABELS[d.angle]}{d.location ? `, ${d.location}` : ""}: {d.description} <span className="muted">({d.severity} · {d.source === "ai" ? `photo check, confirmed by ${d.reviewedBy}` : d.createdBy})</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           {/* Signatures */}
           <div className="card card-pad space-y-3">
@@ -281,9 +335,14 @@ export default async function BookingDetail({
           <div className="card card-pad space-y-2 text-sm">
             <h2 className="h2">Charges</h2>
             <Row l={`${b.rate?.label ?? "Rental"}`} r={fmtMoney(b.subtotalCents)} />
+            {b.fees.filter((f) => f.mode === "included").map((f) => (
+              <Row key={f.id} l={<span className="pl-3 text-xs text-slate-500">incl. {f.name}</span>} r={<span className="text-xs text-slate-500">{fmtMoney(f.amountCents)}</span>} />
+            ))}
             {b.addOns.map((a) => <Row key={a.id} l={`${a.addOn.name} × ${a.quantity}`} r={fmtMoney(a.priceCents * a.quantity)} />)}
-            {b.feesCents > 0 && <Row l="Booking fee" r={fmtMoney(b.feesCents)} />}
+            {b.fees.filter((f) => f.mode !== "included").map((f) => <Row key={f.id} l={f.name} r={fmtMoney(f.amountCents)} />)}
+            {b.fees.length === 0 && b.feesCents > 0 && <Row l="Fees" r={fmtMoney(b.feesCents)} />}
             <Row l="Tax" r={fmtMoney(b.taxCents)} />
+            {b.convenienceFeeCents > 0 && <Row l="Card convenience fee" r={fmtMoney(b.convenienceFeeCents)} />}
             <Row l={<b>Total</b>} r={<b>{fmtMoney(b.totalCents)}</b>} />
             <Row l="Paid" r={fmtMoney(b.paidCents)} />
             {b.refundedCents > 0 && <Row l="Refunded" r={`−${fmtMoney(b.refundedCents)}`} />}
@@ -339,6 +398,25 @@ export default async function BookingDetail({
               <div>{b.customer.email}</div>
               {b.customerNotes && <div className="mt-2 rounded bg-amber-50 p-2 text-xs">Customer note: {b.customerNotes}</div>}
             </div>
+          </div>
+
+          <div className="card card-pad space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="h2">Texts</h2>
+              {guestPhone && <Link className="text-xs text-brand underline" href={`/admin/messages?phone=${encodeURIComponent(guestPhone)}`}>Open in Messages</Link>}
+            </div>
+            {guestPhone ? (
+              <>
+                <div className="flex max-h-80 flex-col-reverse overflow-y-auto"><Thread messages={texts} /></div>
+                <ReplyBox
+                  action={sendMessageAction}
+                  hidden={{ phone: guestPhone, customerId: b.customerId, bookingId: b.id, returnTo: `/admin/bookings/${b.id}` }}
+                  templates={tpl}
+                />
+              </>
+            ) : (
+              <p className="muted">No valid mobile number on file.</p>
+            )}
           </div>
 
           <form action={saveBookingNotes} className="card card-pad space-y-2">

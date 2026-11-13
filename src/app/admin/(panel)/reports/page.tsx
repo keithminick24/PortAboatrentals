@@ -17,7 +17,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
     prisma.payment.findMany({ where: { createdAt: { gte: start, lt: end } } }),
     prisma.booking.findMany({
       where: { startsAt: { gte: start, lt: end }, status: { notIn: ["cancelled"] } },
-      include: { boat: true, addOns: { include: { addOn: true } } },
+      include: { boat: true, addOns: { include: { addOn: true } }, fees: true },
     }),
     prisma.boat.findMany({ where: { status: { not: "retired" } }, orderBy: { sortOrder: "asc" } }),
   ]);
@@ -47,6 +47,15 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
       const cur = addOnTotals.get(a.addOn.name) ?? { qty: 0, cents: 0 };
       addOnTotals.set(a.addOn.name, { qty: cur.qty + a.quantity, cents: cur.cents + a.quantity * a.priceCents });
     }
+  // Fee revenue by fee name (added fees on top; included fees carved out of rental)
+  const feeTotals = new Map<string, { mode: string; cents: number }>();
+  for (const b of bookings)
+    for (const fl of b.fees) {
+      const cur = feeTotals.get(fl.name) ?? { mode: fl.mode, cents: 0 };
+      feeTotals.set(fl.name, { mode: fl.mode, cents: cur.cents + fl.amountCents });
+    }
+  const convenience = bookings.reduce((s, b) => s + b.convenienceFeeCents, 0);
+  const rentalNet = bookings.reduce((s, b) => s + b.subtotalCents - b.includedFeesCents, 0);
   const byDow = [0, 0, 0, 0, 0, 0, 0];
   for (const b of bookings) byDow[new Date(localDate(b.startsAt) + "T12:00:00Z").getUTCDay()]++;
 
@@ -93,6 +102,20 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
           <p className="muted mt-2">Utilization = booked hours ÷ open hours in range.</p>
         </div>
         <div className="space-y-6">
+          <div className="card card-pad">
+            <h2 className="h2 mb-3">Revenue breakdown (trips in range)</h2>
+            <table className="table">
+              <tbody>
+                <tr><td>Boat rental (excluding included fees)</td><td className="text-right">{fmtMoney(rentalNet)}</td></tr>
+                {[...feeTotals].map(([name, v]) => (
+                  <tr key={name}><td>{name} <span className="muted text-xs">({v.mode === "included" ? "included in price" : "added"})</span></td><td className="text-right">{fmtMoney(v.cents)}</td></tr>
+                ))}
+                <tr><td>Add-ons</td><td className="text-right">{fmtMoney(bookings.reduce((s, b) => s + b.addOnsCents, 0))}</td></tr>
+                <tr><td>Card convenience fees</td><td className="text-right">{fmtMoney(convenience)}</td></tr>
+                <tr><td>Sales tax</td><td className="text-right">{fmtMoney(tax)}</td></tr>
+              </tbody>
+            </table>
+          </div>
           <div className="card card-pad">
             <h2 className="h2 mb-3">Add-ons sold</h2>
             {addOnTotals.size === 0 ? <p className="muted">None in range.</p> : (

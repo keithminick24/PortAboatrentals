@@ -23,7 +23,17 @@ Online booking, contracts, payments, deposits, and dock operations for Port A Bo
 - **Contracts**: versioned. Every signature stores the exact text signed, a SHA-256 hash, IP, device, and timestamp.
 - **Customers**: history, lifetime spend, damage history, staff notes
 - **Reports**: revenue, refunds, damage captures, sales tax, utilization per boat, add-on sales, busiest days
-- Roles: **Owner**, **Manager** (refunds and captures), and **Staff** (check-in/out and photos)
+- **Fees**: mandatory fees by trip length (e.g. Damage Waiver $50 for 4 hrs, $100 for 9 hrs), fees included in the boat price and shown separately (e.g. Fuel), and a card convenience fee (percent + flat) on online card payments
+- **Messages**: two-way texting with guests through your Quo number, one-tap templates (waiver link, reminder, boat ready), automatic confirmation and day-before texts
+- **Maintenance**: service intervals per boat by engine hours and/or days with due alerts, full log per boat and for equipment, damage history per boat
+- Roles: **Owner**, **Manager** (refunds and captures), **Staff** (check-in/out and photos), and **Dock crew** (dock app only)
+
+**For the dock crew** (`/dock`, phone-first)
+- Today's departures, boats on the water (overdue in red), and returns
+- Guided check-out: agreement/payment/waiver checks, 8 guided photos (bow, sides, stern, helm, seating, engine, prop), engine hours, fuel, deposit hold
+- Guided check-in: after photos, engine hours, damage log, notes for the office
+- **Automatic damage check**: every photo is reviewed by Claude. Check-out photos flag existing damage to document; check-in photos are compared with the matching check-out photo and possible new damage is flagged on screen (and texted to the damage alert phone). The crew confirms or dismisses each spot before check-in. Nothing is charged automatically.
+- Boats: service due, mark service done, report issues, damage on record
 
 ## Run it locally
 
@@ -35,7 +45,7 @@ npm run setup               # creates the SQLite DB + sample fleet + owner login
 npm run dev                 # http://localhost:3000  (admin: /admin)
 ```
 
-The default login is `admin@portaboatrentals.com` / `change-me`. Change it in `.env` before seeding.
+The default login is `admin@portaboatrentals.com` / `change-me`. Change it in `.env` before seeding. Add dock crew logins in Admin → Settings → Staff logins with the **Dock crew** role; they sign in at `/dock`.
 
 With no `STRIPE_SECRET_KEY`, the app runs in **test payment mode**. Every payment, hold, capture, and refund is recorded, but no card is charged.
 
@@ -51,10 +61,12 @@ With no `STRIPE_SECRET_KEY`, the app runs in **test payment mode**. Every paymen
    - Create a webhook to `https://YOUR-APP/api/stripe/webhook` for `checkout.session.completed`, `checkout.session.async_payment_succeeded`, and `charge.dispute.created`.
    - Put its signing secret in `STRIPE_WEBHOOK_SECRET`.
 5. **Scheduled job**: call `GET /api/cron` with header `Authorization: Bearer $CRON_SECRET` every 15–30 minutes. It releases abandoned unpaid holds and places deposit holds about 24 hours before each trip. Card holds only last about 7 days, which is why the hold isn't placed at booking time.
-6. **Email**: set SMTP credentials (Google Workspace, Postmark, SES…) and `STAFF_NOTIFY_EMAIL` for new-booking alerts.
-7. **Your real data**: in Admin → Fleet, edit the sample tritoons: names, photos, real prices, deposits. Then set tax, hours, buffer, and cancellation policy in Settings.
-8. **Contract**: the included agreement is a starting template. **Have a Texas maritime attorney review it** before customers sign it.
-9. **Domain and website**:
+6. **Texting (Quo)**: in Quo, create an API key and find your phone number ID (starts with `PN`). Set `QUO_API_KEY` and `QUO_PHONE_NUMBER_ID`. Create a webhook to `https://YOUR-APP/api/quo/webhook` for `message.received`, `message.delivered`, `message.failed`, `message.undelivered`, and put its `whsec_…` key in `QUO_WEBHOOK_SECRET`.
+7. **Photo damage check**: set `ANTHROPIC_API_KEY` (console.anthropic.com). Each check-out/check-in photo is one request, roughly a few cents each.
+8. **Email**: set SMTP credentials (Google Workspace, Postmark, SES…) and `STAFF_NOTIFY_EMAIL` for new-booking alerts.
+9. **Your real data**: in Admin → Fleet, edit the sample tritoons: names, photos, real prices, deposits. Then set tax, hours, buffer, and cancellation policy in Settings.
+10. **Contract**: the included agreement is a starting template. **Have a Texas maritime attorney review it** before customers sign it.
+11. **Domain and website**:
    - Point a subdomain at the app, for example `book.portaboatrentals.com`. Once Storable is retired, you can use `rentals.portaboatrentals.com`.
    - On WordPress, link "Book Now" buttons to `/book`, or paste the iframe snippet from Admin → Settings.
 

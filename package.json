@@ -16,6 +16,7 @@
     "setup:demo": "prisma db push && tsx prisma/seed.ts && tsx --conditions=react-server prisma/demo-data.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.8.0",
     "@aws-sdk/client-s3": "^3.1168.0",
     "@prisma/client": "^6.19.3",
     "bcryptjs": "^3.0.3",

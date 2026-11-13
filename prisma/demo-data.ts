@@ -3,6 +3,10 @@ import { prisma } from "../src/lib/db";
 import { createBooking } from "../src/lib/bookings";
 import { recordRentalPayment } from "../src/lib/payments";
 import { addDays, todayLocal } from "../src/lib/time";
+import { createHash } from "node:crypto";
+
+// 1x1 transparent PNG as a stand-in drawn signature for sample data
+const SIG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
 (async () => {
   const boats = await prisma.boat.findMany({ include: { rates: true }, orderBy: { name: "asc" } });
   const addOns = await prisma.addOn.findMany();
@@ -29,9 +33,30 @@ import { addDays, todayLocal } from "../src/lib/time";
         addOns: i % 2 === 0 && addOns[0] ? [{ addOnId: addOns[0].id, quantity: 1 }] : [],
         source: i % 3 === 0 ? "phone" : "online", actor: "demo", staffOverride: true,
       });
-      if (pay) await recordRentalPayment(b.id, b.totalCents, "mock", null, null, "demo");
+      if (pay) {
+        // Sample renters have signed the agreement so check-out can be tried right away
+        const tpl = await prisma.contractTemplate.findFirst({ where: { required: true, active: true }, orderBy: { version: "desc" } });
+        if (tpl) {
+          await prisma.signature.create({
+            data: {
+              bookingId: b.id, templateId: tpl.id, signerName: `${fn} ${ln}`, signerEmail: `${fn.toLowerCase()}@example.com`,
+              isPrimary: true, dateOfBirth: "1988-05-14", boaterEdNumber: "TX-SAMPLE-" + (1000 + i), signatureData: SIG,
+              bodySnapshot: tpl.body, bodyHash: createHash("sha256").update(tpl.body).digest("hex"), ipAddress: "sample",
+            },
+          });
+        }
+        await recordRentalPayment(b.id, b.totalCents, "mock", null, null, "demo");
+      }
       console.log("ok", fn, ln, addDays(t, d), time);
     } catch (e: any) { console.log("skip", fn, e.message); }
   }
+  // Sample dock crew login for trying the dock app at /dock
+  const bcrypt = (await import("bcryptjs")).default;
+  await prisma.adminUser.upsert({
+    where: { email: "dock@portaboatrentals.com" },
+    update: {},
+    create: { email: "dock@portaboatrentals.com", name: "Dock Crew", role: "dock", passwordHash: await bcrypt.hash("dock-test", 10) },
+  });
+  console.log("Dock crew login: dock@portaboatrentals.com / dock-test");
   await prisma.$disconnect();
 })();

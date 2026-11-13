@@ -20,7 +20,7 @@ model AdminUser {
   email        String   @unique
   name         String
   passwordHash String
-  role         String   @default("staff") // owner | manager | staff
+  role         String   @default("staff") // owner | manager | staff | dock
   active       Boolean  @default(true)
   createdAt    DateTime @default(now())
 }
@@ -53,6 +53,8 @@ model Boat {
   bookings       Booking[]
   blocks         BoatBlock[]
   maintenance    MaintenanceLog[]
+  schedules      MaintenanceSchedule[]
+  damage         DamageReport[]
 }
 
 // A bookable duration and its price, e.g. "Half Day (4 hrs)" $450
@@ -81,6 +83,48 @@ model AddOn {
   active      Boolean @default(true)
   sortOrder   Int     @default(0)
   bookingAddOns BookingAddOn[]
+  maintenance MaintenanceLog[]
+}
+
+// ---------- Mandatory fees ----------
+
+// Fees applied to every booking, e.g. Damage Waiver ($50 for 4 hrs, $100 for 9 hrs)
+// or Fuel (included in the boat price, shown as its own line).
+model Fee {
+  id          String   @id @default(cuid())
+  name        String
+  description String   @default("")
+  // added = charged on top of the rental | included = part of the rental price, shown separately
+  mode        String   @default("added")
+  // flat = amount by trip length (tiers) | percent = percent of rental price
+  calc        String   @default("flat")
+  percentBps  Int      @default(0)
+  taxable     Boolean  @default(false)
+  active      Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  tiers       FeeTier[]
+}
+
+// "Trips of at least minMinutes cost amountCents." The largest matching tier wins.
+model FeeTier {
+  id          String @id @default(cuid())
+  feeId       String
+  fee         Fee    @relation(fields: [feeId], references: [id], onDelete: Cascade)
+  minMinutes  Int    @default(0)
+  amountCents Int
+}
+
+// Fee amounts as charged on a booking (snapshot; later fee edits don't change past bookings)
+model BookingFee {
+  id          String  @id @default(cuid())
+  bookingId   String
+  booking     Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  feeId       String?
+  name        String
+  mode        String
+  amountCents Int
+  taxable     Boolean @default(false)
 }
 
 // Time a boat can't be booked (maintenance, owner use, weather closures)
@@ -94,16 +138,39 @@ model BoatBlock {
   createdAt DateTime @default(now())
 }
 
+// Service history for a boat or a piece of equipment (add-on)
 model MaintenanceLog {
   id          String   @id @default(cuid())
-  boatId      String
-  boat        Boat     @relation(fields: [boatId], references: [id], onDelete: Cascade)
+  boatId      String?
+  boat        Boat?    @relation(fields: [boatId], references: [id], onDelete: Cascade)
+  addOnId     String?
+  addOn       AddOn?   @relation(fields: [addOnId], references: [id], onDelete: Cascade)
+  scheduleId  String?
+  // service | repair | inspection | cleaning | other
+  category    String   @default("service")
   performedAt DateTime @default(now())
   engineHours Float?
   description String
+  vendor      String   @default("")
   costCents   Int?
+  // Optional receipt/photo
+  storageKey  String?
   createdBy   String?
   createdAt   DateTime @default(now())
+}
+
+// Recurring service, e.g. "Oil change every 100 hrs or 365 days"
+model MaintenanceSchedule {
+  id            String    @id @default(cuid())
+  boatId        String
+  boat          Boat      @relation(fields: [boatId], references: [id], onDelete: Cascade)
+  name          String
+  everyHours    Float?
+  everyDays     Int?
+  lastDoneAt    DateTime?
+  lastDoneHours Float?
+  active        Boolean   @default(true)
+  createdAt     DateTime  @default(now())
 }
 
 // ---------- Customers & bookings ----------
@@ -119,6 +186,7 @@ model Customer {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   bookings        Booking[]
+  messages        Message[]
 }
 
 model Booking {
@@ -149,7 +217,11 @@ model Booking {
   subtotalCents Int
   addOnsCents   Int      @default(0)
   taxCents      Int      @default(0)
+  // Mandatory fees added on top (see BookingFee for lines)
   feesCents     Int      @default(0)
+  // Portion of subtotalCents attributed to included fees (e.g. fuel)
+  includedFeesCents Int  @default(0)
+  convenienceFeeCents Int @default(0)
   totalCents    Int
   paidCents     Int      @default(0)
   refundedCents Int      @default(0)
@@ -180,12 +252,16 @@ model Booking {
   engineHoursIn    Float?
   damageNotes      String   @default("")
   internalNotes    String   @default("")
+  reminderSentAt   DateTime?
   customerNotes    String   @default("")
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
   addOns        BookingAddOn[]
+  fees          BookingFee[]
+  damage        DamageReport[]
+  messages      Message[]
   signatures    Signature[]
   photos        Photo[]
   payments      Payment[]
@@ -253,12 +329,67 @@ model Photo {
   booking    Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   // before | after | damage | other
   phase      String
+  // Guided shot position: bow | stern | port | starboard | helm | seating | engine | prop | other
+  angle      String   @default("other")
+  // Automatic damage review: none | pending | done | skipped | error
+  aiStatus   String   @default("none")
+  aiSummary  String   @default("")
   storageKey String
   contentType String
   sizeBytes  Int
   caption    String   @default("")
   uploadedBy String?
   createdAt  DateTime @default(now())
+}
+
+// Damage found by dock crew or flagged by the automatic photo review
+model DamageReport {
+  id          String   @id @default(cuid())
+  boatId      String
+  boat        Boat     @relation(fields: [boatId], references: [id], onDelete: Cascade)
+  bookingId   String?
+  booking     Booking? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  photoId     String?
+  // crew | ai
+  source      String   @default("crew")
+  // before (existed at check-out) | after (found at check-in)
+  phase       String   @default("after")
+  angle       String   @default("other")
+  location    String   @default("")
+  description String
+  // minor | moderate | major
+  severity    String   @default("minor")
+  // needs_check (AI flag awaiting crew) | confirmed | dismissed | repaired
+  status      String   @default("confirmed")
+  confidence  Float?
+  createdBy   String?
+  reviewedBy  String?
+  reviewedAt  DateTime?
+  createdAt   DateTime @default(now())
+}
+
+// ---------- Text messages (Quo) ----------
+
+model Message {
+  id         String    @id @default(cuid())
+  customerId String?
+  customer   Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  bookingId  String?
+  booking    Booking?  @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  // in | out
+  direction  String
+  // Guest phone in E.164, e.g. +13615550123
+  phone      String
+  body       String
+  // queued | sent | delivered | failed | received | mock
+  status     String    @default("queued")
+  externalId String?   @unique
+  error      String?
+  sentBy     String?
+  readAt     DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([phone, createdAt])
 }
 
 // ---------- Money ledger ----------
@@ -308,8 +439,17 @@ model Settings {
   minNoticeHours     Int     @default(2)
   // Sales tax in basis points (825 = 8.25%)
   taxRateBps         Int     @default(825)
-  // Booking/processing fee in basis points of subtotal
+  // Legacy (replaced by Admin → Fees); kept so existing databases update cleanly
   feeRateBps         Int     @default(0)
+  // Card convenience fee on online card payments: percent (bps) + flat cents
+  convenienceFeeBps   Int    @default(290)
+  convenienceFeeCents Int    @default(30)
+  convenienceFeeLabel String @default("Card convenience fee")
+  // Phone staff/dock crew are alerted on for AI-flagged damage (optional)
+  damageAlertPhone    String @default("")
+  // Automatic texts through Quo
+  smsOnConfirm        Boolean @default(true)
+  smsReminder         Boolean @default(true)
   // Free cancellation if cancelled at least this many hours before start
   cancelWindowHours  Int     @default(48)
   // Minutes a pending (unpaid) booking holds the boat

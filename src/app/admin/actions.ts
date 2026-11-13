@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { hashPassword, login, logout, requireAdmin, requireRole } from "@/lib/auth";
+import { getSession, hashPassword, login, logout, requireAdmin, requireRole } from "@/lib/auth";
 import { BookingError, createBooking, logEvent, missingPrimarySignatures, onBookingConfirmed, setStatus } from "@/lib/bookings";
 import {
   captureDeposit,
@@ -19,6 +19,8 @@ import { zonedToUtc } from "@/lib/time";
 import { appUrl, emailLayout, sendMail } from "@/lib/mail";
 import { deleteObject } from "@/lib/storage";
 import { fmtRange } from "@/lib/time";
+import { checkIn, checkOut } from "@/lib/operations";
+import { sendText } from "@/lib/messaging";
 
 const str = (f: FormData, k: string) => String(f.get(k) ?? "").trim();
 const num = (f: FormData, k: string) => {
@@ -37,8 +39,10 @@ const back = (path: string, msg?: string, err?: string) => {
 export async function loginAction(_prev: { error?: string } | undefined, f: FormData) {
   const ok = await login(str(f, "email"), str(f, "password"));
   if (!ok) return { error: "Incorrect email or password." };
+  const sess = await getSession();
+  if (sess?.role === "dock") redirect("/dock");
   const next = str(f, "next");
-  redirect(next.startsWith("/admin") ? next : "/admin");
+  redirect(next.startsWith("/admin") || next.startsWith("/dock") ? next : "/admin");
 }
 
 export async function logoutAction() {
@@ -55,6 +59,7 @@ export async function adminCreateBooking(f: FormData) {
     .filter(([k]) => k.startsWith("addon_"))
     .map(([k, v]) => ({ addOnId: k.slice(6), quantity: Number(v) || 0 }));
   let id: string;
+  const pay = str(f, "payment");
   try {
     const b = await createBooking({
       boatId,
@@ -73,9 +78,10 @@ export async function adminCreateBooking(f: FormData) {
       source: "phone",
       actor: s.name,
       staffOverride: true,
+      // Convenience fee only when the guest pays online by card
+      convenienceFee: pay === "link",
     });
     id = b.id;
-    const pay = str(f, "payment");
     if (pay === "cash" || pay === "card_terminal") {
       await recordRentalPayment(b.id, b.totalCents, pay === "cash" ? "cash" : "other", null, null, s.name, "Recorded by staff");
     } else if (pay === "link") {
@@ -87,7 +93,7 @@ export async function adminCreateBooking(f: FormData) {
           "Finish your booking",
           `<p>Hi ${full.customer.firstName}, we've reserved <b>${full.boat.name}</b> for ${fmtRange(full.startsAt, full.endsAt)}.</p>
 <p>Please sign the rental agreement and pay to confirm:</p>
-<p><a href="${appUrl(`/b/${full.accessToken}`)}" style="background:#1E6286;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none">Sign & pay</a></p>`,
+<p><a href="${appUrl(`/b/${full.accessToken}`)}" style="background:#C62828;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none">Sign & pay</a></p>`,
         ),
       });
       await logEvent(b.id, "link_sent", "Payment link emailed to customer", s.name);
@@ -111,57 +117,22 @@ export async function updateBookingStatus(f: FormData) {
 export async function checkOutBoat(f: FormData) {
   const s = await requireAdmin();
   const id = str(f, "id");
-  const b = await prisma.booking.findUniqueOrThrow({ where: { id }, include: { boat: true } });
-  if ((await missingPrimarySignatures(id)).length > 0) {
-    return back(`/admin/bookings/${id}`, undefined, "The renter must sign the rental agreement before check-out.");
-  }
-  if (b.paidCents < b.totalCents) return back(`/admin/bookings/${id}`, undefined, "Collect the balance before check-out.");
-  const engineHoursOut = num(f, "engineHoursOut");
-  if (str(f, "placeDeposit") === "on" && b.depositStatus !== "held" && b.depositCents > 0) {
-    const r = await placeDepositHold(id, s.name);
-    if (!r.ok) return back(`/admin/bookings/${id}`, undefined, `Deposit hold failed: ${r.error} — boat NOT checked out.`);
-  }
-  await prisma.booking.update({
-    where: { id },
-    data: {
-      status: "checked_out",
-      checkedOutAt: new Date(),
-      checkedOutBy: s.name,
-      fuelOut: str(f, "fuelOut") || null,
-      engineHoursOut,
-    },
+  const r = await checkOut(id, s.name, {
+    engineHoursOut: num(f, "engineHoursOut"),
+    fuelOut: str(f, "fuelOut") || null,
+    placeDeposit: str(f, "placeDeposit") === "on",
+    allowMissingPhotos: true,
   });
-  if (engineHoursOut != null) await prisma.boat.update({ where: { id: b.boatId }, data: { engineHours: engineHoursOut } });
-  await logEvent(id, "checked_out", `Checked out · fuel ${str(f, "fuelOut") || "?"} · engine ${engineHoursOut ?? "?"} hrs`, s.name);
-  back(`/admin/bookings/${id}`, "Boat checked out — have a great trip!");
+  if (r.ok) back(`/admin/bookings/${id}`, r.message);
+  else back(`/admin/bookings/${id}`, undefined, r.error);
 }
 
 export async function checkInBoat(f: FormData) {
   const s = await requireAdmin();
   const id = str(f, "id");
-  const b = await prisma.booking.findUniqueOrThrow({ where: { id } });
-  const engineHoursIn = num(f, "engineHoursIn");
-  const damage = str(f, "damageNotes");
-  await prisma.booking.update({
-    where: { id },
-    data: {
-      status: "returned",
-      returnedAt: new Date(),
-      returnedBy: s.name,
-      fuelIn: str(f, "fuelIn") || null,
-      engineHoursIn,
-      damageNotes: damage,
-    },
-  });
-  if (engineHoursIn != null) await prisma.boat.update({ where: { id: b.boatId }, data: { engineHours: engineHoursIn } });
-  const late = b.endsAt < new Date() ? Math.round((Date.now() - b.endsAt.getTime()) / 60000) : 0;
-  await logEvent(
-    id,
-    "returned",
-    `Returned · fuel ${str(f, "fuelIn") || "?"} · engine ${engineHoursIn ?? "?"} hrs${late > 10 ? ` · ${late} min late` : ""}${damage ? ` · damage: ${damage}` : ""}`,
-    s.name,
-  );
-  back(`/admin/bookings/${id}`, "Boat checked in. Review photos, then release or capture the deposit.");
+  const r = await checkIn(id, s.name, { engineHoursIn: num(f, "engineHoursIn"), fuelIn: str(f, "fuelIn") || null, notes: str(f, "damageNotes") });
+  if (r.ok) back(`/admin/bookings/${id}`, "Boat checked in. Review photos, then release or capture the deposit.");
+  else back(`/admin/bookings/${id}`, undefined, r.error);
 }
 
 export async function completeBooking(f: FormData) {
@@ -236,7 +207,7 @@ export async function sendPaymentLinkAction(f: FormData) {
     html: emailLayout(
       "Your booking",
       `<p>Hi ${b.customer.firstName}, here's the link to view your ${b.boat.name} booking for ${fmtRange(b.startsAt, b.endsAt)}, sign your agreement, and pay any balance:</p>
-<p><a href="${appUrl(`/b/${b.accessToken}`)}" style="background:#1E6286;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none">Open booking</a></p>
+<p><a href="${appUrl(`/b/${b.accessToken}`)}" style="background:#C62828;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none">Open booking</a></p>
 <p>Guest waiver link to share with your group: ${appUrl(`/w/${b.waiverToken}`)}</p>`,
     ),
   });
@@ -403,18 +374,44 @@ export async function deleteBlock(f: FormData) {
 export async function addMaintenance(f: FormData) {
   const s = await requireAdmin();
   const boatId = str(f, "boatId");
-  if (!str(f, "description")) return back(`/admin/boats/${boatId}`, undefined, "Describe the work done");
+  if (!str(f, "description")) return back(boatId ? `/admin/boats/${boatId}` : "/admin/maintenance", undefined, "Describe the work done");
+  const addOnId = str(f, "addOnId") || null;
+  const scheduleId = str(f, "scheduleId") || null;
+  const performedAt = str(f, "date") ? zonedToUtc(str(f, "date"), "12:00") : new Date();
+  const hours = num(f, "engineHours");
+  const returnTo = str(f, "returnTo") || (boatId ? `/admin/boats/${boatId}` : "/admin/maintenance");
   await prisma.maintenanceLog.create({
     data: {
-      boatId,
+      boatId: boatId || null,
+      addOnId,
+      scheduleId,
+      category: str(f, "category") || "service",
       description: str(f, "description"),
-      engineHours: num(f, "engineHours"),
+      vendor: str(f, "vendor"),
+      engineHours: hours,
       costCents: parseMoney(str(f, "cost")),
-      performedAt: str(f, "date") ? zonedToUtc(str(f, "date"), "12:00") : new Date(),
+      performedAt,
       createdBy: s.name,
     },
   });
-  back(`/admin/boats/${boatId}`, "Maintenance logged");
+  if (scheduleId) await prisma.maintenanceSchedule.update({ where: { id: scheduleId }, data: { lastDoneAt: performedAt, lastDoneHours: hours } });
+  if (boatId && hours != null) {
+    const boat = await prisma.boat.findUniqueOrThrow({ where: { id: boatId } });
+    if (hours > boat.engineHours) await prisma.boat.update({ where: { id: boatId }, data: { engineHours: hours } });
+  }
+  back(returnTo, "Maintenance logged");
+}
+
+export async function saveSchedule(f: FormData) {
+  await requireRole("owner", "manager");
+  const boatId = str(f, "boatId");
+  const id = str(f, "id");
+  const name = str(f, "name");
+  if (!name) return back(`/admin/boats/${boatId}`, undefined, "Name the service item");
+  const data = { name, everyHours: num(f, "everyHours"), everyDays: num(f, "everyDays"), active: str(f, "active") === "on" };
+  if (id) await prisma.maintenanceSchedule.update({ where: { id }, data });
+  else await prisma.maintenanceSchedule.create({ data: { ...data, boatId, lastDoneHours: (await prisma.boat.findUniqueOrThrow({ where: { id: boatId } })).engineHours } });
+  back(`/admin/boats/${boatId}`, "Saved");
 }
 
 // ---------------------------------------------------------------- add-ons
@@ -435,6 +432,57 @@ export async function saveAddOn(f: FormData) {
   if (id) await prisma.addOn.update({ where: { id }, data });
   else await prisma.addOn.create({ data });
   back("/admin/addons", "Saved");
+}
+
+// ---------------------------------------------------------------- texting
+
+export async function sendMessageAction(f: FormData) {
+  const s = await requireAdmin();
+  const returnTo = str(f, "returnTo") || "/admin/messages";
+  const r = await sendText({
+    to: str(f, "phone"),
+    body: str(f, "body"),
+    customerId: str(f, "customerId") || null,
+    bookingId: str(f, "bookingId") || null,
+    sentBy: s.name,
+  });
+  const sep = returnTo.includes("?") ? "&" : "?";
+  redirect(r.ok ? returnTo : `${returnTo}${sep}err=${encodeURIComponent(r.error ?? "Send failed")}`);
+}
+
+// ---------------------------------------------------------------- mandatory fees
+
+export async function saveFee(f: FormData) {
+  await requireRole("owner", "manager");
+  const id = str(f, "id");
+  const name = str(f, "name");
+  if (!name) return back("/admin/fees", undefined, "Name is required");
+  const hours = f.getAll("tierHours").map(String);
+  const amounts = f.getAll("tierAmount").map(String);
+  const tiers: { minMinutes: number; amountCents: number }[] = [];
+  hours.forEach((h, i) => {
+    const amt = parseMoney(amounts[i] ?? "");
+    if (amt == null || (h.trim() === "" && (amounts[i] ?? "").trim() === "")) return;
+    tiers.push({ minMinutes: Math.round((parseFloat(h || "0") || 0) * 60), amountCents: amt });
+  });
+  const calc = str(f, "calc") === "percent" ? "percent" : "flat";
+  if (calc === "flat" && tiers.length === 0) return back("/admin/fees", undefined, `Add at least one amount for ${name}`);
+  const data = {
+    name,
+    description: str(f, "description"),
+    mode: str(f, "mode") === "included" ? "included" : "added",
+    calc,
+    percentBps: Math.round(parseFloat(str(f, "percent") || "0") * 100),
+    taxable: str(f, "taxable") === "on",
+    active: str(f, "active") === "on",
+    sortOrder: Number(str(f, "sortOrder")) || 0,
+  };
+  await prisma.$transaction(async (tx) => {
+    const fee = id ? await tx.fee.update({ where: { id }, data }) : await tx.fee.create({ data });
+    await tx.feeTier.deleteMany({ where: { feeId: fee.id } });
+    if (tiers.length) await tx.feeTier.createMany({ data: tiers.map((t) => ({ ...t, feeId: fee.id })) });
+  });
+  back("/admin/fees", "Saved. Applies to new bookings.");
 }
 
 // ---------------------------------------------------------------- contracts
@@ -484,7 +532,12 @@ export async function saveSettings(f: FormData) {
       maxAdvanceDays: Number(str(f, "maxAdvanceDays")) || 180,
       minNoticeHours: Number(str(f, "minNoticeHours")) || 0,
       taxRateBps: pct("taxRate"),
-      feeRateBps: pct("feeRate"),
+      convenienceFeeBps: pct("convenienceFeePct"),
+      convenienceFeeCents: Math.round(parseFloat(str(f, "convenienceFeeFlat") || "0") * 100),
+      convenienceFeeLabel: str(f, "convenienceFeeLabel") || "Card convenience fee",
+      smsOnConfirm: str(f, "smsOnConfirm") === "on",
+      smsReminder: str(f, "smsReminder") === "on",
+      damageAlertPhone: str(f, "damageAlertPhone"),
       cancelWindowHours: Number(str(f, "cancelWindowHours")) || 0,
       holdMinutes: Number(str(f, "holdMinutes")) || 20,
       weekendDays: f.getAll("weekendDays").map(String).join(","),
