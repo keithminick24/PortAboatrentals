@@ -1,3 +1,4 @@
+import TelemetryAlerts from "@/components/admin/TelemetryAlerts";
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { addDays, fmtTime, todayLocal, zonedToUtc, fmtDateStr } from "@/lib/time";
@@ -26,6 +27,7 @@ export default async function DockHome({ searchParams }: { searchParams: Promise
       </div>
       <FlashMessage msg={sp.msg} err={sp.err} />
       <ClockCard />
+      <TelemetryAlerts returnTo="/dock" />
       <Link href="/dock/incidents/new" className="block rounded-xl border border-rose-200 bg-rose-50 p-3 text-center font-semibold text-rose-800">⚠ Report incident</Link>
 
       <Section title="On the water" empty="No boats out right now.">

@@ -69,6 +69,9 @@ model Boat {
   towPlan         String   @default("")
   towExpiresAt    DateTime?
   towNotes        String   @default("")
+  // BoatFix telematics (Fleet Manager Pro)
+  boatfixDeviceId String   @default("")
+  boatfixUrl      String   @default("")
 
   maintenance    MaintenanceLog[]
   schedules      MaintenanceSchedule[]
@@ -78,6 +81,8 @@ model Boat {
   expenses       Expense[]
   incidents      Incident[]
   budgets        Budget[]
+  telemetry      TelemetryReading[]
+  telemetryAlerts TelemetryAlert[]
 }
 
 // A bookable duration and its price, e.g. "Half Day (4 hrs)" $450
@@ -838,4 +843,43 @@ model PhoneOrder {
   reviewedBy   String?
   reviewedAt   DateTime?
   createdAt    DateTime @default(now())
+}
+
+
+// =====================================================================
+// Telematics (BoatFix and similar)
+// =====================================================================
+
+model TelemetryReading {
+  id          String   @id @default(cuid())
+  boatId      String
+  boat        Boat     @relation(fields: [boatId], references: [id], onDelete: Cascade)
+  // boatfix | csv | manual
+  source      String   @default("boatfix")
+  recordedAt  DateTime
+  engineHours Float?
+  lat         Float?
+  lng         Float?
+  batteryVolts Float?
+  createdAt   DateTime @default(now())
+
+  @@index([boatId, recordedAt])
+}
+
+model TelemetryAlert {
+  id          String   @id @default(cuid())
+  boatId      String
+  boat        Boat     @relation(fields: [boatId], references: [id], onDelete: Cascade)
+  source      String   @default("boatfix")
+  externalId  String?  @unique
+  // engine_fault | low_battery | bilge | geofence | shore_power | other
+  kind        String   @default("other")
+  message     String
+  occurredAt  DateTime
+  // open | acknowledged
+  status      String   @default("open")
+  ackBy       String?
+  ackAt       DateTime?
+  raw         String   @default("")
+  createdAt   DateTime @default(now())
 }

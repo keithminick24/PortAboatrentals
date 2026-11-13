@@ -48,6 +48,11 @@ Online booking, contracts, payments, deposits, and dock operations for Port A Bo
 **Phone bookings (Quo AI)**
 - Calls answered by Quo's AI become booking requests; staff review, approve, and the guest is texted a link to sign and pay
 
+**BoatFix telematics**
+- Per boat: BoatFix device ID and portal link (crew get an "Open in BoatFix" button)
+- Receives BoatFix updates at `POST /api/telemetry/boatfix` (header `x-webhook-token: $TELEMETRY_WEBHOOK_SECRET`): engine hours (auto-updates service reminders), GPS, battery, alerts (bilge, battery, engine fault, geofence) shown on Today, in the dock app, and texted to the damage alert phone
+- Or import a BoatFix engine-hours report (CSV) on the boat page
+
 **Roles**: Admin (owner), Manager, Accounting, Office (staff), Crew (dock) — each sees only their areas.
 
 **For the dock crew** (`/dock`, phone-first)

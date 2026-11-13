@@ -30,6 +30,7 @@ export default async function DockBoat({ params, searchParams }: { params: Promi
         <h1 className="text-2xl font-bold">{boat.name}</h1>
         <div className="text-sm text-slate-500">{boat.engineHours.toFixed(1)} engine hours{boat.registration ? ` · ${boat.registration}` : ""}</div>
         <div className="mt-3"><TowInfo boat={boat} /></div>
+        {boat.boatfixUrl && <a href={boat.boatfixUrl} target="_blank" rel="noreferrer" className="btn-secondary mt-2 w-full justify-center">📡 Open in BoatFix (location, battery, alerts)</a>}
         <Link href={`/dock/incidents/new?boatId=${boat.id}`} className="mt-2 block text-center text-sm font-semibold text-rose-700">⚠ Report incident</Link>
       </div>
       <FlashMessage msg={sp.msg} err={sp.err} />

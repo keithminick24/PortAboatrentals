@@ -9,6 +9,7 @@ import { addBlock, addMaintenance, copyRatesToAllBoats, deleteBlock, saveBoat, s
 import { dueStatus } from "@/lib/maintenance";
 import { ANGLE_LABELS } from "@/lib/constants";
 import BoatInsuranceTow from "@/components/admin/BoatInsuranceTow";
+import BoatTelemetry from "@/components/admin/BoatTelemetry";
 
 export default async function BoatEdit({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ msg?: string; err?: string }> }) {
   const { id } = await params;
@@ -200,6 +201,7 @@ export default async function BoatEdit({ params, searchParams }: { params: Promi
         )}
       </div>
       {boat && <BoatInsuranceTow boatId={boat.id} />}
+      {boat && <BoatTelemetry boatId={boat.id} />}
     </div>
   );
 }
